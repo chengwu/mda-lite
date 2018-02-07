@@ -14,7 +14,7 @@ def init_graph():
     ip_address[source] = "127.0.0.1"
     for i in range (1, 5000):
         flow_ids[source].append(i)
-    ttls[source].append(1)
+    ttls[source].append(0)
     return g
 
 
@@ -34,11 +34,11 @@ def update_neigbours(g, v, ttl, flow_id):
     if ttl not in ttls[v]:
         ttls[v].append(ttl)
     # Add the corresponding edges if there are to be added
-    successor = find_vertex_by_ttl_flow_id(g, flow_id, ttl + 1)
+    successor = find_vertex_by_ttl_flow_id(g, ttl+1, flow_id)
     if successor is not None:
         # Multiple edges are possible here
         g.add_edge(v, successor)
-    predecessor = find_vertex_by_ttl_flow_id(g, flow_id, ttl - 1)
+    predecessor = find_vertex_by_ttl_flow_id(g, ttl-1, flow_id)
     if predecessor is not None:
         g.add_edge(predecessor, v)
 
@@ -56,7 +56,7 @@ def add_new_vertex(g, ip, ttl, flow_id):
     init_vertex(g, v, ip, ttl, flow_id)
     return v
 
-def update_graph(g, ip, flow_id, ttl):
+def update_graph(g, ip, ttl, flow_id):
     ip_address = g.vertex_properties["ip_address"]
 
     already_discovered = False
@@ -71,3 +71,24 @@ def update_graph(g, ip, flow_id, ttl):
         update_neigbours(g, v, ttl, flow_id)
 
     return g
+
+def dict_vertices_by_ttl(g):
+    ttls = g.vertex_properties["ttls"]
+    dict_vertices_by_ttl = {}
+    for v in g.vertices():
+        for ttl in ttls[v]:
+            if ttl not in dict_vertices_by_ttl:
+                dict_vertices_by_ttl[ttl] = [v]
+            else:
+                dict_vertices_by_ttl[ttl].append(v)
+
+    return dict_vertices_by_ttl
+
+def extract_load_balancers_ttl(g):
+    vertices_by_ttl = dict_vertices_by_ttl(g)
+    ttls = filter(lambda (ttl, vertices): len(vertices) > 1, vertices_by_ttl.iteritems())
+    load_balanced_ttls = []
+    for ttl, vertices in ttls:
+        load_balanced_ttls.append(ttl)
+    return load_balanced_ttls
+

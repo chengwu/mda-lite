@@ -31,6 +31,8 @@ def get_phase_1_probe(destination, ttl):
     return probes
 
 def main():
+    budget  = 500
+    used    = 0
     g = init_graph()
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
@@ -41,24 +43,28 @@ def main():
     # Phase 1
     has_found_destination = False
     ttl = 1
-    while not has_found_destination:
+    while not has_found_destination or used >= budget:
         phase1_probes = get_phase_1_probe(destination, ttl)
-        replies, unanswered = sr(phase1_probes, timeout=1, verbose = False)
+        replies, unanswered = sr(phase1_probes, timeout=1, verbose=False)
+        used = used + len(phase1_probes)
         for probe, reply in replies:
             src_ip  = extract_src_ip(reply)
             flow_id = extract_flow_id(reply)
             ttl     = extract_ttl(probe)
             # Update the graph
-            g = update_graph(g, src_ip, flow_id, ttl)
-            graph_topology_draw(g)
+            g = update_graph(g, src_ip, ttl, flow_id)
+            #graph_topology_draw(g)
 
             if src_ip == destination:
                 has_found_destination = True
-                break
         ttl = ttl + 1
+    #graph_topology_draw(g)
 
     #Phase 2
-
+    load_balancers_ttl = extract_load_balancers_ttl(g)
+    # First reach the nks for this corresponding hops.
+    
+    print "Phase 3 finished"
     # Heuristics :
     # 1) If all flows reconverge to 1 interface
     # 2) If shared succesors
