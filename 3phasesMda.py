@@ -1,9 +1,10 @@
-from graph_tool.all import *
 from scapy import config
 config.Conf.load_layers.remove("x509")
 from scapy.all import *
 from Maths.Bounds import *
 from Packets.Utils import *
+from Graph.Operations import *
+from Graph.Visualization import *
 # Hardcoded sport
 sport  = 24000
 # Hardcoded dport
@@ -28,15 +29,6 @@ def get_phase_1_probe(destination, ttl):
         udp = build_transport_probe(j)
         probes.append(ip/udp)
     return probes
-def init_graph():
-    g = Graph()
-    ip_address = g.new_vertex_property("string")
-    flow_ids   = g.new_vertex_property("vector<int>", [])
-
-    g.vertex_properties["ip_address"] = ip_address
-    g.vertex_properties["flow_ids"]   = flow_ids
-    return g
-
 
 def main():
     g = init_graph()
@@ -55,10 +47,18 @@ def main():
         for probe, reply in replies:
             src_ip  = extract_src_ip(reply)
             flow_id = extract_flow_id(reply)
+            ttl     = extract_ttl(probe)
+            # Update the graph
+            g = update_graph(g, src_ip, flow_id, ttl)
+            graph_topology_draw(g)
+
             if src_ip == destination:
                 has_found_destination = True
                 break
         ttl = ttl + 1
+
+    #Phase 2
+
     # Heuristics :
     # 1) If all flows reconverge to 1 interface
     # 2) If shared succesors
