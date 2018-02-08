@@ -30,6 +30,38 @@ def get_phase_1_probe(destination, ttl):
         probes.append(ip/udp)
     return probes
 
+def execute_phase3(g, destination, llb):
+    #llb : List of load balancer lb
+    for lb in llb:
+        # nint is the number of already discovered interfaces
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            # TODO Parametrize the nks
+            nprobe_sent = find_probes_sent(g, ttl)
+            hypothesis = nint + 1
+            while nprobe_sent < nk95[hypothesis]:
+                flow_id = find_max_flow_id(g, ttl) + 1
+                nprobes = nk95[hypothesis] - nprobe_sent
+                probes  = []
+                # Generate the nprobes
+                for j in range(1, nprobes + 1):
+                    ip = build_ip_probe(destination, ttl)
+                    udp = build_transport_probe(flow_id + j)
+                    probes.append(ip/udp)
+                replies, answered = sr(probes, timeout=1, verbose=False)
+                for probe, reply in replies:
+                    src_ip = extract_src_ip(reply)
+                    flow_id = extract_flow_id(reply)
+                    ttl = extract_ttl(probe)
+                    if is_new_ip(g, src_ip):
+                        hypothesis = hypothesis + 1
+                    # Update the graph
+                    g = update_graph(g, src_ip, ttl, flow_id)
+                nprobe_sent = nprobe_sent + nprobes
+            if len(lb.get_ttl_vertices_number()) == 1:
+                apply_converging_heuristic(g, ttl)
+                #graph_topology_draw(g)
+
+
 def main():
     budget  = 500
     used    = 0
@@ -61,9 +93,12 @@ def main():
     #graph_topology_draw(g)
 
     #Phase 2
-    load_balancers_ttl = extract_load_balancers_ttl(g)
+    llb = extract_load_balancers(g)
+
+    # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
-    
+    execute_phase3(g, destination, llb)
+
     print "Phase 3 finished"
     # Heuristics :
     # 1) If all flows reconverge to 1 interface
