@@ -144,18 +144,35 @@ def extract_load_balancers(g):
         load_balancers.append(LoadBalancer(lb))
     return load_balancers
 
+def find_no_predecessor_vertices(g, ttl):
+    result = []
+    vertices_ttl = find_vertex_by_ttl(g, ttl)
+    for v in vertices_ttl:
+        if v.in_degree() == 0:
+            result.append(v)
+    return result
 
-def apply_converging_heuristic(g, ttl):
+def apply_has_successors_heuristic(g, ttl):
+    # Find if the the interfaces at ttl have common successors
 
+    interfaces = find_vertex_by_ttl(g, ttl)
+    successors = find_vertex_by_ttl(g, ttl + 1)
+    for interface in interfaces:
+        for interface2 in interfaces:
+            if interface != interface2:
+                if len(set(interface.out_neighbours()).intersection(interface2.out_neighbours())) != 0:
+                    return True
+    return False
+
+
+def apply_converging_heuristic(g, ttl, forward, backward):
+    # This heuristic just infer divergence and then reconvergence
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
 
     inferred = g.edge_properties["inferred"]
     lv_successor = find_vertex_by_ttl(g, ttl+1)
-    if len(lv_successor) > 1 or len(lv_successor) == 0:
-        raise Exception
+
     lv_predecessor = find_vertex_by_ttl(g, ttl - 1)
-    if len(lv_predecessor) > 1 or len(lv_predecessor) == 0:
-        raise Exception
     v_successor = lv_successor[0]
     v_successor_flow_ids = ttls_flow_ids[v_successor][ttl+1]
 
@@ -164,12 +181,14 @@ def apply_converging_heuristic(g, ttl):
     for v in g.vertices():
         for hop, flow_ids in ttls_flow_ids[v].iteritems():
             if hop == ttl:
-                if len(set(flow_ids).intersection(v_successor_flow_ids)) == 0:
-                    e = g.add_edge(v, v_successor)
-                    inferred[e] = True
-                if len(set(flow_ids).intersection(v_predecessor_flow_ids)) == 0:
-                    e = g.add_edge(v_predecessor, v)
-                    inferred[e] = True
+                if forward:
+                    if len(set(flow_ids).intersection(v_successor_flow_ids)) == 0:
+                        e = g.add_edge(v, v_successor)
+                        inferred[e] = True
+                if backward:
+                    if len(set(flow_ids).intersection(v_predecessor_flow_ids)) == 0:
+                        e = g.add_edge(v_predecessor, v)
+                        inferred[e] = True
 
 def is_new_ip(g, ip):
     ip_address = g.vertex_properties["ip_address"]

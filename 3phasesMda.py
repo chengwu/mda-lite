@@ -31,6 +31,7 @@ def get_phase_1_probe(destination, ttl):
     return probes
 
 def execute_phase3(g, destination, llb):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
         # nint is the number of already discovered interfaces
@@ -58,8 +59,32 @@ def execute_phase3(g, destination, llb):
                     g = update_graph(g, src_ip, ttl, flow_id)
                 nprobe_sent = nprobe_sent + nprobes
             if len(lb.get_ttl_vertices_number()) == 1:
-                apply_converging_heuristic(g, ttl)
+                apply_converging_heuristic(g, ttl, forward=True, backward=True)
                 #graph_topology_draw(g)
+            elif ttl == max(lb.get_ttl_vertices_number().keys()):
+                apply_converging_heuristic(g, ttl, forward=True, backward=False)
+    # Second round, after we have discovered all the nodes, try to infer the links
+    for lb in llb:
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            if not apply_has_successors_heuristic(g, ttl):
+                # This means that we can apply an heuristic playing on symmetry
+                # Check if we have interfaces at ttl + 1 without predecessor
+                no_predecessor_vertices = find_no_predecessor_vertices(g, ttl + 1)
+                check_predecessor_probes = []
+                for v in no_predecessor_vertices:
+                    flow_id = ttls_flow_ids[v][ttl + 1][0]
+                    ip = build_ip_probe(destination, ttl)
+                    udp = build_transport_probe(flow_id)
+                    check_predecessor_probes.append(ip / udp)
+                replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
+                for probe, reply in replies:
+                    src_ip = extract_src_ip(reply)
+                    flow_id = extract_flow_id(reply)
+                    ttl = extract_ttl(probe)
+                    # Update the graph
+                    g = update_graph(g, src_ip, ttl, flow_id)
+
+        graph_topology_draw(g)
 
 
 def main():
