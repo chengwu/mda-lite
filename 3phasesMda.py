@@ -15,6 +15,9 @@ max_ttl= 30
 #nk to ensure 5% failure probability
 nk95, nk99 = get_nks()
 
+# Link batches
+batch_link_probe_size = 30
+
 def build_ip_probe(destination, ttl):
     return IP(dst=destination, ttl=ttl)
 
@@ -30,7 +33,30 @@ def get_phase_1_probe(destination, ttl):
         probes.append(ip/udp)
     return probes
 
-def execute_phase3(g, destination, llb):
+def reconnect_successors(g, destination, ttl):
+    reconnect_impl(g, destination, ttl, ttl + 1)
+
+def reconnect_predecessors(g, destination, ttl):
+    reconnect_impl(g, destination, ttl, ttl-1)
+
+def reconnect_impl(g, destination, ttl, ttl2):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    no_predecessor_vertices = find_no_predecessor_vertices(g, ttl)
+    check_predecessor_probes = []
+    for v in no_predecessor_vertices:
+        flow_id = ttls_flow_ids[v][ttl][0]
+        ip = build_ip_probe(destination, ttl2)
+        udp = build_transport_probe(flow_id)
+        check_predecessor_probes.append(ip / udp)
+    replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
+    for probe, reply in replies:
+        src_ip = extract_src_ip(reply)
+        flow_id = extract_flow_id(reply)
+        ttl = extract_ttl(probe)
+        # Update the graph
+        g = update_graph(g, src_ip, ttl, flow_id)
+
+def execute_phase3(g, destination, llb, limit_link_probes):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
@@ -58,24 +84,32 @@ def execute_phase3(g, destination, llb):
                     # Update the graph
                     g = update_graph(g, src_ip, ttl, flow_id)
                 nprobe_sent = nprobe_sent + nprobes
+
             if len(lb.get_ttl_vertices_number()) == 1:
                 apply_converging_heuristic(g, ttl, forward=True, backward=True)
-                #graph_topology_draw(g)
             elif ttl == max(lb.get_ttl_vertices_number().keys()):
                 apply_converging_heuristic(g, ttl, forward=True, backward=False)
-    # Second round, after we have discovered all the nodes, try to infer the links
+    # Second round, reconnect all the nodes that have no successors or no predecessors
     for lb in llb:
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
-            if not apply_has_successors_heuristic(g, ttl):
-                # This means that we can apply an heuristic playing on symmetry
-                # Check if we have interfaces at ttl + 1 without predecessor
-                no_predecessor_vertices = find_no_predecessor_vertices(g, ttl + 1)
+            reconnect_predecessors(g, destination, ttl)
+            reconnect_successors(g, destination, ttl)
+
+    #graph_topology_draw(g)
+    # Third round, try to infer the missing links if necessary from the flows you already have
+    for lb in llb:
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            if ttl == min(lb.get_ttl_vertices_number().keys()):
+                continue
+            if apply_has_predecessors_heuristic(g, ttl):
+                # Here it is more complicated, we have to infer multiple predecessors
+                multiple_predecessors_vertices = find_vertex_by_ttl(g, ttl)
                 check_predecessor_probes = []
-                for v in no_predecessor_vertices:
-                    flow_id = ttls_flow_ids[v][ttl + 1][0]
-                    ip = build_ip_probe(destination, ttl)
-                    udp = build_transport_probe(flow_id)
-                    check_predecessor_probes.append(ip / udp)
+                for v in multiple_predecessors_vertices:
+                    for flow_id in ttls_flow_ids[v][ttl]:
+                        ip = build_ip_probe(destination, ttl-1)
+                        udp = build_transport_probe(flow_id)
+                        check_predecessor_probes.append(ip / udp)
                 replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
@@ -84,12 +118,40 @@ def execute_phase3(g, destination, llb):
                     # Update the graph
                     g = update_graph(g, src_ip, ttl, flow_id)
 
-        graph_topology_draw(g)
-
+    # Fourth round, try to infer the missing links by generating new flows
+    # This number is parametrable
+    links_probes_sent = 0
+    for lb in llb:
+        # Filter the ttls where there are multiple predecessors
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            if ttl == min(lb.get_ttl_vertices_number().keys()):
+                continue
+            if apply_has_predecessors_heuristic(g, ttl):
+                has_discovered_new_link = True
+                # Generate probes new flow_ids
+                while links_probes_sent < limit_link_probes and has_discovered_new_link:
+                    has_discovered_new_link = False
+                    check_links_probes = []
+                    flow_id = find_max_flow_id(g, ttl) + 1
+                    for i in seq(1, batch_link_probe_size+1):
+                        ip = build_ip_probe(destination, ttl)
+                        udp = build_transport_probe(flow_id + i)
+                        check_links_probes.append(ip / udp)
+                    replies, answered = sr(check_links_probes, timeout=1, verbose=False)
+                    for probe, reply in replies:
+                        src_ip = extract_src_ip(reply)
+                        flow_id = extract_flow_id(reply)
+                        ttl = extract_ttl(probe)
+                        # Update the graph
+                        g = update_graph(g, src_ip, ttl, flow_id)
+                    links_probes_sent = links_probes_sent + batch_link_probe_size
+                    # With the new flows generated, find the missing flows at ttl-1
+                    missing_flows = 
 
 def main():
     budget  = 500
     used    = 0
+    limit_edges = 800
     g = init_graph()
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
@@ -122,9 +184,13 @@ def main():
 
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
-    execute_phase3(g, destination, llb)
-
+    execute_phase3(g, destination, llb, limit_edges)
+    remove_parallel_edges(g)
+    #graph_topology_draw(g)
     print "Phase 3 finished"
+
+    full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
+    graph_topology_draw(full_mda_g)
     # Heuristics :
     # 1) If all flows reconverge to 1 interface
     # 2) If shared succesors

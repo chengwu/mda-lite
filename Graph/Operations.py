@@ -55,6 +55,15 @@ def find_probes_sent(g, ttl):
                 count = count + len(flow_ids)
     return count
 
+def find_flows(g, ttl):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    flows_ids_ttl = []
+    for v in g.vertices():
+        for hop, flow_ids in ttls_flow_ids[v].iteritems():
+            if hop == ttl:
+                flows_ids_ttl.extend(flow_ids)
+    return flows_ids_ttl
+
 def update_neigbours(g, v, ttl, flow_id):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     if ttls_flow_ids[v].has_key(ttl):
@@ -152,15 +161,22 @@ def find_no_predecessor_vertices(g, ttl):
             result.append(v)
     return result
 
-def apply_has_successors_heuristic(g, ttl):
+def find_no_successor_vertices(g, ttl):
+    result = []
+    vertices_ttl = find_vertex_by_ttl(g, ttl)
+    for v in vertices_ttl:
+        if v.out_degree() == 0:
+            result.append(v)
+    return result
+
+def apply_has_predecessors_heuristic(g, ttl):
     # Find if the the interfaces at ttl have common successors
 
     interfaces = find_vertex_by_ttl(g, ttl)
-    successors = find_vertex_by_ttl(g, ttl + 1)
     for interface in interfaces:
         for interface2 in interfaces:
             if interface != interface2:
-                if len(set(interface.out_neighbours()).intersection(interface2.out_neighbours())) != 0:
+                if len(set(interface.in_neighbors()).intersection(interface2.in_neighbors())) != 0:
                     return True
     return False
 
