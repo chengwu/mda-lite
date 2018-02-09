@@ -64,6 +64,23 @@ def find_flows(g, ttl):
                 flows_ids_ttl.extend(flow_ids)
     return flows_ids_ttl
 
+# Find flows that are
+def find_missing_flows(g, ttl, ttl2):
+    flows_ids_ttl = sorted(find_flows(g, ttl))
+    flows_ids_ttl2 = sorted(find_flows(g, ttl2))
+
+    missing_flows = []
+    for flow1 in flows_ids_ttl:
+        if flow1 not in flows_ids_ttl2:
+            missing_flows.append(flow1)
+    return sorted(missing_flows)
+
+
+def dump_flows(g):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    for i in range(1, 30):
+        print sorted(find_flows(g, i))
+    return
 def update_neigbours(g, v, ttl, flow_id):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     if ttls_flow_ids[v].has_key(ttl):
@@ -213,6 +230,17 @@ def is_new_ip(g, ip):
             return False
     return True
 
+def has_discovered_edge(g, ip, ttl, flow_id):
+    v = find_vertex_by_ttl_flow_id(g, ttl, flow_id)
+    if v is None:
+        return True
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    potential_predecessors = find_vertex_by_ttl(g, ttl - 1)
+    for p in potential_predecessors:
+        for ttl, flow_ids in ttls_flow_ids[p].iteritems():
+            if ttl == ttl - 1 and flow_id in flow_ids and v in p.out_neighbors():
+                return True
+    return False
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]
     ll = find_consecutive_sequence(seq)

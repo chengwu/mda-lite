@@ -66,13 +66,13 @@ def execute_phase3(g, destination, llb, limit_link_probes):
             nprobe_sent = find_probes_sent(g, ttl)
             hypothesis = nint + 1
             while nprobe_sent < nk95[hypothesis]:
-                flow_id = find_max_flow_id(g, ttl) + 1
+                next_flow_id = find_max_flow_id(g, ttl)
                 nprobes = nk95[hypothesis] - nprobe_sent
                 probes  = []
                 # Generate the nprobes
                 for j in range(1, nprobes + 1):
                     ip = build_ip_probe(destination, ttl)
-                    udp = build_transport_probe(flow_id + j)
+                    udp = build_transport_probe(next_flow_id + j)
                     probes.append(ip/udp)
                 replies, answered = sr(probes, timeout=1, verbose=False)
                 for probe, reply in replies:
@@ -94,7 +94,6 @@ def execute_phase3(g, destination, llb, limit_link_probes):
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             reconnect_predecessors(g, destination, ttl)
             reconnect_successors(g, destination, ttl)
-
     #graph_topology_draw(g)
     # Third round, try to infer the missing links if necessary from the flows you already have
     for lb in llb:
@@ -103,13 +102,12 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                 continue
             if apply_has_predecessors_heuristic(g, ttl):
                 # Here it is more complicated, we have to infer multiple predecessors
-                multiple_predecessors_vertices = find_vertex_by_ttl(g, ttl)
+                missing_flows = find_missing_flows(g, ttl, ttl - 1)
                 check_predecessor_probes = []
-                for v in multiple_predecessors_vertices:
-                    for flow_id in ttls_flow_ids[v][ttl]:
-                        ip = build_ip_probe(destination, ttl-1)
-                        udp = build_transport_probe(flow_id)
-                        check_predecessor_probes.append(ip / udp)
+                for flow_id in missing_flows:
+                    ip = build_ip_probe(destination, ttl-1)
+                    udp = build_transport_probe(flow_id)
+                    check_predecessor_probes.append(ip / udp)
                 replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
@@ -131,9 +129,15 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                 # Generate probes new flow_ids
                 while links_probes_sent < limit_link_probes and has_discovered_new_link:
                     has_discovered_new_link = False
+                    # Privilegiate flows that are already at ttl - 1
                     check_links_probes = []
+                    overflows = find_missing_flows(g, ttl-1, ttl)
+                    for flow in overflows:
+                        ip = build_ip_probe(destination, ttl)
+                        udp = build_transport_probe(flow)
+                        check_links_probes.append(ip / udp)
                     flow_id = find_max_flow_id(g, ttl) + 1
-                    for i in seq(1, batch_link_probe_size+1):
+                    for i in range(1, batch_link_probe_size+1-len(overflows)):
                         ip = build_ip_probe(destination, ttl)
                         udp = build_transport_probe(flow_id + i)
                         check_links_probes.append(ip / udp)
@@ -142,11 +146,28 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                         src_ip = extract_src_ip(reply)
                         flow_id = extract_flow_id(reply)
                         ttl = extract_ttl(probe)
+                        has_discovered_new_link = has_discovered_edge(g, src_ip, ttl, flow_id)
                         # Update the graph
                         g = update_graph(g, src_ip, ttl, flow_id)
                     links_probes_sent = links_probes_sent + batch_link_probe_size
                     # With the new flows generated, find the missing flows at ttl-1
-                    missing_flows = 
+                    check_missing_flow_probes = []
+                    missing_flows = find_missing_flows(g, ttl, ttl-1)
+                    for flow in missing_flows:
+                        ip = build_ip_probe(destination, ttl-1)
+                        udp = build_transport_probe(flow)
+                        check_missing_flow_probes.append(ip / udp)
+                    replies, answered = sr(check_missing_flow_probes, timeout=1, verbose=False)
+                    for probe, reply in replies:
+                        src_ip = extract_src_ip(reply)
+                        flow_id = extract_flow_id(reply)
+                        ttl = extract_ttl(probe)
+                        # Update the graph
+                        if not has_discovered_new_link:
+                            has_discovered_new_link = has_discovered_edge(g, src_ip, ttl, flow_id)
+                        g = update_graph(g, src_ip, ttl, flow_id)
+                    links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
+                    dump_flows(g)
 
 def main():
     budget  = 500
