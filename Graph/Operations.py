@@ -18,6 +18,13 @@ def init_graph():
         ttls_flow_ids[source][0].append(i)
     return g
 
+def find_vertex_by_ip(g, ip):
+    ip_address = g.vertex_properties["ip_address"]
+    for v in g.vertices():
+        if ip_address[v] == ip:
+            return v
+    return None
+
 def find_vertex_by_ttl(g, ttl):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     vertices_ttl = []
@@ -231,15 +238,16 @@ def is_new_ip(g, ip):
     return True
 
 def has_discovered_edge(g, ip, ttl, flow_id):
-    v = find_vertex_by_ttl_flow_id(g, ttl, flow_id)
-    if v is None:
+    v = find_vertex_by_ip(g, ip)
+    if v is None :
         return True
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     potential_predecessors = find_vertex_by_ttl(g, ttl - 1)
     for p in potential_predecessors:
-        for ttl, flow_ids in ttls_flow_ids[p].iteritems():
-            if ttl == ttl - 1 and flow_id in flow_ids and v in p.out_neighbors():
-                return True
+        for hop, flow_ids in ttls_flow_ids[p].iteritems():
+            if hop == ttl - 1 and flow_id in flow_ids:
+                if v not in p.out_neighbors():
+                    return True
     return False
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]

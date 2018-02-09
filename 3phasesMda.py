@@ -78,11 +78,11 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
                     flow_id = extract_flow_id(reply)
-                    ttl = extract_ttl(probe)
+                    probe_ttl = extract_ttl(probe)
                     if is_new_ip(g, src_ip):
                         hypothesis = hypothesis + 1
                     # Update the graph
-                    g = update_graph(g, src_ip, ttl, flow_id)
+                    g = update_graph(g, src_ip, probe_ttl, flow_id)
                 nprobe_sent = nprobe_sent + nprobes
 
             if len(lb.get_ttl_vertices_number()) == 1:
@@ -112,9 +112,9 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
                     flow_id = extract_flow_id(reply)
-                    ttl = extract_ttl(probe)
+                    probe_ttl = extract_ttl(probe)
                     # Update the graph
-                    g = update_graph(g, src_ip, ttl, flow_id)
+                    g = update_graph(g, src_ip, probe_ttl, flow_id)
 
     # Fourth round, try to infer the missing links by generating new flows
     # This number is parametrable
@@ -136,19 +136,24 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                         ip = build_ip_probe(destination, ttl)
                         udp = build_transport_probe(flow)
                         check_links_probes.append(ip / udp)
-                    flow_id = find_max_flow_id(g, ttl) + 1
+                    next_flow_id = find_max_flow_id(g, ttl)
                     for i in range(1, batch_link_probe_size+1-len(overflows)):
                         ip = build_ip_probe(destination, ttl)
-                        udp = build_transport_probe(flow_id + i)
+                        udp = build_transport_probe(next_flow_id + i)
                         check_links_probes.append(ip / udp)
                     replies, answered = sr(check_links_probes, timeout=1, verbose=False)
+                    discovered = 0
+
                     for probe, reply in replies:
                         src_ip = extract_src_ip(reply)
                         flow_id = extract_flow_id(reply)
-                        ttl = extract_ttl(probe)
-                        has_discovered_new_link = has_discovered_edge(g, src_ip, ttl, flow_id)
+                        probe_ttl = extract_ttl(probe)
+                        if not has_discovered_new_link:
+                            has_discovered_new_link = has_discovered_edge(g, src_ip, probe_ttl, flow_id)
+                        if has_discovered_new_link:
+                            discovered = discovered + 1
                         # Update the graph
-                        g = update_graph(g, src_ip, ttl, flow_id)
+                        g = update_graph(g, src_ip, probe_ttl, flow_id)
                     links_probes_sent = links_probes_sent + batch_link_probe_size
                     # With the new flows generated, find the missing flows at ttl-1
                     check_missing_flow_probes = []
@@ -161,11 +166,13 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                     for probe, reply in replies:
                         src_ip = extract_src_ip(reply)
                         flow_id = extract_flow_id(reply)
-                        ttl = extract_ttl(probe)
+                        probe_ttl = extract_ttl(probe)
                         # Update the graph
                         if not has_discovered_new_link:
-                            has_discovered_new_link = has_discovered_edge(g, src_ip, ttl, flow_id)
-                        g = update_graph(g, src_ip, ttl, flow_id)
+                            has_discovered_new_link = has_discovered_edge(g, src_ip, probe_ttl, flow_id)
+                            if has_discovered_new_link :
+                                discovered = discovered + 1
+                        g = update_graph(g, src_ip, probe_ttl, flow_id)
                     links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
                     dump_flows(g)
 
