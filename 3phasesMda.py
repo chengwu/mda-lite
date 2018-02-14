@@ -177,11 +177,17 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
                         dump_flows(g)
-
+    # Apply final heuristics based on symetry to infer links
+    remove_parallel_edges(g)
+    for lb in llb:
+        # Filter the ttls where there are multiple predecessors
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            apply_symmetry_heuristic(g, ttl, 2)
+    remove_parallel_edges(g)
 def main():
     budget  = 500
     used    = 0
-    limit_edges = 2500
+    limit_edges = 200
     g = init_graph()
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
@@ -196,12 +202,15 @@ def main():
         phase1_probes = get_phase_1_probe(destination, ttl)
         replies, unanswered = sr(phase1_probes, timeout=1, verbose=False)
         used = used + len(phase1_probes)
+        if len(replies) == 0:
+            src_ip = "* * * " + ttl
+            g = update_graph(g, src_ip, ttl, -1)
         for probe, reply in replies:
             src_ip  = extract_src_ip(reply)
             flow_id = extract_flow_id(reply)
-            ttl     = extract_ttl(probe)
+            probe_ttl     = extract_ttl(probe)
             # Update the graph
-            g = update_graph(g, src_ip, ttl, flow_id)
+            g = update_graph(g, src_ip, probe_ttl, flow_id)
             #graph_topology_draw(g)
 
             if src_ip == destination:
@@ -215,8 +224,7 @@ def main():
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     execute_phase3(g, destination, llb, limit_edges)
-    remove_parallel_edges(g)
-    graph_topology_draw(g)
+    graph_topology_draw_with_inferred(g)
     print "Phase 3 finished"
 
     full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")

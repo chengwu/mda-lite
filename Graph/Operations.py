@@ -230,6 +230,26 @@ def apply_converging_heuristic(g, ttl, forward, backward):
                         e = g.add_edge(v_predecessor, v)
                         inferred[e] = True
 
+# max_diff_degree_arg represents the level of inference that we want to put
+def apply_symmetry_heuristic(g, ttl, max_diff_degree_arg):
+    inferred = g.edge_properties["inferred"]
+    vertices_ttl = find_vertex_by_ttl(g, ttl)
+
+    neighbors_by_vertices = {}
+    for v in vertices_ttl:
+        neighbors_by_vertices[v] = list(v.out_neighbors())
+    # If a node has more than strength neigbors in common, infer links
+    for v1, out_neighbors1 in neighbors_by_vertices.iteritems():
+        for v2, out_neighbors2 in neighbors_by_vertices.iteritems():
+            if v1 == v2:
+                continue
+            difference = set(out_neighbors1).difference(out_neighbors2)
+            if len(difference) < max_diff_degree_arg and len(out_neighbors1) > 3:
+                # Add the inferences
+                for d in difference:
+                    e = g.add_edge(v2, d)
+                    inferred[e] = True
+
 def is_new_ip(g, ip):
     ip_address = g.vertex_properties["ip_address"]
     for v in g.vertices():
