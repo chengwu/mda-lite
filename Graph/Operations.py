@@ -1,5 +1,8 @@
 from graph_tool.all import *
 from Graph.LoadBalancer import *
+
+max_ttl = 30
+
 def init_graph():
     g = Graph()
     ip_address = g.new_vertex_property("string")
@@ -194,9 +197,17 @@ def find_no_successor_vertices(g, ttl):
     return result
 
 def apply_has_predecessors_heuristic(g, ttl):
-    # Find if the the interfaces at ttl have common successors
+    # Find if the the interfaces at ttl have common predecessors
 
     interfaces = find_vertex_by_ttl(g, ttl)
+    max_in_neighbor = 0
+    for interface in interfaces:
+        distinct_neighbors = set(interface.in_neighbors())
+        if len(distinct_neighbors) > max_in_neighbor:
+            max_in_neighbor = len(distinct_neighbors)
+    if max_in_neighbor <= 1:
+        # This means we have a pattern of a nested LB with disjoints central points
+        return False
     for interface in interfaces:
         for interface2 in interfaces:
             if interface != interface2:
@@ -269,6 +280,26 @@ def has_discovered_edge(g, ip, ttl, flow_id):
                 if v not in p.out_neighbors():
                     return True
     return False
+
+def clean_stars(g):
+    ip_address = g.vertex_properties["ip_address"]
+    display = g.new_vertex_property("bool", True)
+    g.vertex_properties["display"] = display
+    for ttl in range(1, max_ttl+1):
+        vertices = find_vertex_by_ttl(g, ttl)
+        has_only_star = True
+        filter = []
+        for v in vertices:
+            if not ip_address[v].startswith("* * *"):
+                has_only_star = False
+            else:
+                filter.append(v)
+        # Do not display these stars
+        if not has_only_star:
+            for v in filter:
+                display[v] = False
+
+
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]
     ll = find_consecutive_sequence(seq)

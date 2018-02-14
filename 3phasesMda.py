@@ -5,12 +5,12 @@ from Maths.Bounds import *
 from Packets.Utils import *
 from Graph.Operations import *
 from Graph.Visualization import *
+from Graph.Statistics import *
 # Hardcoded sport
 sport  = 24000
 # Hardcoded dport
-dport  = 33657
+dport  = 33456
 # Hardcoded max_ttl
-max_ttl= 30
 
 #nk to ensure 5% failure probability
 nk95, nk99 = get_nks()
@@ -18,19 +18,28 @@ nk95, nk99 = get_nks()
 # Link batches
 batch_link_probe_size = 30
 
+total_probe_sent = 0
+
+def increment_probe_sent(n):
+    global total_probe_sent
+    total_probe_sent = total_probe_sent + n
+
 def build_ip_probe(destination, ttl):
     return IP(dst=destination, ttl=ttl)
 
 def build_transport_probe(flow_id):
     return UDP(dport = dport, sport = sport + flow_id)
+def build_raw_probe(data):
+    return Raw(load = data)
 
 # 1 protocol for prototyping, UDP
 def get_phase_1_probe(destination, ttl):
     probes = []
-    for j in range (1, nk95[2]+1):
+    for j in range (1, nk99[2]+1):
         ip  = build_ip_probe(destination, ttl)
         udp = build_transport_probe(j)
-        probes.append(ip/udp)
+        raw = build_raw_probe("hello")
+        probes.append(ip/udp/raw)
     return probes
 
 def reconnect_successors(g, destination, ttl):
@@ -48,10 +57,11 @@ def reconnect_impl(g, destination, ttl, ttl2):
         ip = build_ip_probe(destination, ttl2)
         udp = build_transport_probe(flow_id)
         check_predecessor_probes.append(ip / udp)
-    replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
+    replies, answered = sr(check_predecessor_probes, timeout=5, verbose=False)
+    increment_probe_sent(len(check_predecessor_probes))
     for probe, reply in replies:
         src_ip = extract_src_ip(reply)
-        flow_id = extract_flow_id(reply)
+        flow_id = extract_flow_id_reply(reply)
         ttl = extract_ttl(probe)
         # Update the graph
         g = update_graph(g, src_ip, ttl, flow_id)
@@ -74,10 +84,11 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                     ip = build_ip_probe(destination, ttl)
                     udp = build_transport_probe(next_flow_id + j)
                     probes.append(ip/udp)
+                increment_probe_sent(len(probes))
                 replies, answered = sr(probes, timeout=1, verbose=False)
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
-                    flow_id = extract_flow_id(reply)
+                    flow_id = extract_flow_id_reply(reply)
                     probe_ttl = extract_ttl(probe)
                     if is_new_ip(g, src_ip):
                         hypothesis = hypothesis + 1
@@ -108,10 +119,11 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                     ip = build_ip_probe(destination, ttl-1)
                     udp = build_transport_probe(flow_id)
                     check_predecessor_probes.append(ip / udp)
+                increment_probe_sent(len(check_predecessor_probes))
                 replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
                 for probe, reply in replies:
                     src_ip = extract_src_ip(reply)
-                    flow_id = extract_flow_id(reply)
+                    flow_id = extract_flow_id_reply(reply)
                     probe_ttl = extract_ttl(probe)
                     # Update the graph
                     g = update_graph(g, src_ip, probe_ttl, flow_id)
@@ -119,16 +131,19 @@ def execute_phase3(g, destination, llb, limit_link_probes):
     # Fourth round, try to infer the missing links by generating new flows
     # This number is parametrable
     links_probes_sent = 0
-    while links_probes_sent < limit_link_probes:
+    has_to_apply_common_successors_heuristics = True
+    while links_probes_sent < limit_link_probes and has_to_apply_common_successors_heuristics:
+        has_to_apply_common_successors_heuristics = False
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in lb.get_ttl_vertices_number().iteritems():
                 if ttl == min(lb.get_ttl_vertices_number().keys()):
                     continue
                 if apply_has_predecessors_heuristic(g, ttl):
+                    has_to_apply_common_successors_heuristics = True
                     has_discovered_new_link = True
                     # Generate probes new flow_ids
-                    while has_discovered_new_link:
+                    while has_discovered_new_link and links_probes_sent < limit_link_probes:
                         has_discovered_new_link = False
                         # Privilegiate flows that are already at ttl - 1
                         check_links_probes = []
@@ -145,12 +160,13 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                             ip = build_ip_probe(destination, ttl)
                             udp = build_transport_probe(next_flow_id + i)
                             check_links_probes.append(ip / udp)
+                        increment_probe_sent(len(check_links_probes))
                         replies, answered = sr(check_links_probes, timeout=1, verbose=False)
                         discovered = 0
 
                         for probe, reply in replies:
                             src_ip = extract_src_ip(reply)
-                            flow_id = extract_flow_id(reply)
+                            flow_id = extract_flow_id_reply(reply)
                             probe_ttl = extract_ttl(probe)
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
                                 has_discovered_new_link = True
@@ -165,10 +181,11 @@ def execute_phase3(g, destination, llb, limit_link_probes):
                             ip = build_ip_probe(destination, ttl-1)
                             udp = build_transport_probe(flow)
                             check_missing_flow_probes.append(ip / udp)
-                        replies, answered = sr(check_missing_flow_probes, timeout=1, verbose=False)
+                        increment_probe_sent(len(check_missing_flow_probes))
+                        replies, answered = sr(check_missing_flow_probes, timeout=5, verbose=False)
                         for probe, reply in replies:
                             src_ip = extract_src_ip(reply)
-                            flow_id = extract_flow_id(reply)
+                            flow_id = extract_flow_id_reply(reply)
                             probe_ttl = extract_ttl(probe)
                             # Update the graph
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
@@ -184,10 +201,12 @@ def execute_phase3(g, destination, llb, limit_link_probes):
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             apply_symmetry_heuristic(g, ttl, 2)
     remove_parallel_edges(g)
+
+
 def main():
     budget  = 500
     used    = 0
-    limit_edges = 200
+    limit_edges = 600
     g = init_graph()
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
@@ -198,21 +217,24 @@ def main():
     # Phase 1
     has_found_destination = False
     ttl = 1
-    while not has_found_destination or used >= budget:
+    while not has_found_destination:
         phase1_probes = get_phase_1_probe(destination, ttl)
-        replies, unanswered = sr(phase1_probes, timeout=1, verbose=False)
+        replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
         used = used + len(phase1_probes)
-        if len(replies) == 0:
-            src_ip = "* * * " + ttl
-            g = update_graph(g, src_ip, ttl, -1)
+        increment_probe_sent(len(phase1_probes))
+        for probe in unanswered:
+            flow_id = extract_flow_id_probe(probe)
+            src_ip = "* * * "+ str(ttl)
+            # Update the graph
+            g = update_graph(g, src_ip, ttl, flow_id)
         for probe, reply in replies:
             src_ip  = extract_src_ip(reply)
-            flow_id = extract_flow_id(reply)
+            flow_id = extract_flow_id_reply(reply)
             probe_ttl     = extract_ttl(probe)
             # Update the graph
             g = update_graph(g, src_ip, probe_ttl, flow_id)
             #graph_topology_draw(g)
-
+            print src_ip
             if src_ip == destination:
                 has_found_destination = True
         ttl = ttl + 1
@@ -224,11 +246,13 @@ def main():
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     execute_phase3(g, destination, llb, limit_edges)
+    clean_stars(g)
     graph_topology_draw_with_inferred(g)
+    print "Total probe sent : " + str(total_probe_sent)
+    print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
-
-    full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
-    graph_topology_draw(full_mda_g)
+    #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
+    #graph_topology_draw(full_mda_g)
     # Heuristics :
     # 1) If all flows reconverge to 1 interface
     # 2) If shared succesors
