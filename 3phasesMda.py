@@ -1,5 +1,7 @@
 from scapy import config
+import sys, getopt
 config.Conf.load_layers.remove("x509")
+import shlex
 from scapy.all import *
 from Maths.Bounds import *
 from Packets.Utils import *
@@ -33,12 +35,13 @@ def build_raw_probe(data):
     return Raw(load = data)
 
 # 1 protocol for prototyping, UDP
-def get_phase_1_probe(destination, ttl):
+# Must write vertex_confidence
+def get_phase_1_probe(destination, ttl, vertex_confidence):
     probes = []
     for j in range (1, nk99[2]+1):
         ip  = build_ip_probe(destination, ttl)
         udp = build_transport_probe(j)
-        raw = build_raw_probe("hello")
+        raw = build_raw_probe("he")
         probes.append(ip/udp/raw)
     return probes
 
@@ -66,7 +69,32 @@ def reconnect_impl(g, destination, ttl, ttl2):
         # Update the graph
         g = update_graph(g, src_ip, ttl, flow_id)
 
-def execute_phase3(g, destination, llb, limit_link_probes):
+def execute_phase1(g, destination, vertex_confidence):
+    has_found_destination = False
+    ttl = 1
+    while not has_found_destination:
+        phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
+        replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
+        increment_probe_sent(len(phase1_probes))
+        for probe in unanswered:
+            flow_id = extract_flow_id_probe(probe)
+            src_ip = "* * * " + str(ttl)
+            # Update the graph
+            g = update_graph(g, src_ip, ttl, flow_id)
+        for probe, reply in replies:
+            src_ip = extract_src_ip(reply)
+            flow_id = extract_flow_id_reply(reply)
+            probe_ttl = extract_ttl(probe)
+            # Update the graph
+            g = update_graph(g, src_ip, probe_ttl, flow_id)
+            # graph_topology_draw(g)
+            print src_ip
+            if src_ip == destination:
+                has_found_destination = True
+        ttl = ttl + 1
+
+
+def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
@@ -203,41 +231,39 @@ def execute_phase3(g, destination, llb, limit_link_probes):
     remove_parallel_edges(g)
 
 
-def main():
-    budget  = 500
-    used    = 0
-    limit_edges = 600
+def main(argv):
+    # default values
+    limit_edges = 500
+    vertex_confidence = 99
+    output_file = ""
+    try:
+        opts, args = getopt.getopt(argv, "h:o:c:b:", ["ofile=", "vertex-confidence", "edge-budget"])
+    except getopt.GetoptError:
+        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        sys.exit(2)
+    if len(args) != 1:
+        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+            sys.exit()
+        elif opt in ("-o", "--ofile"):
+            output_file = arg
+        elif opt in ("-c", "--vertex-confidence"):
+            vertex_confidence = int(arg)
+        elif opt in ("-b", "--edge-budget"):
+            limit_edges = int(arg)
+    destination  = args[0]
+
     g = init_graph()
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
     # 3) Load balancer discovery
 
-    destination  = sys.argv[1]
     print "Starting phase 1 and 2 : finding a length to the destination and the load balancers"
     # Phase 1
-    has_found_destination = False
-    ttl = 1
-    while not has_found_destination:
-        phase1_probes = get_phase_1_probe(destination, ttl)
-        replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
-        used = used + len(phase1_probes)
-        increment_probe_sent(len(phase1_probes))
-        for probe in unanswered:
-            flow_id = extract_flow_id_probe(probe)
-            src_ip = "* * * "+ str(ttl)
-            # Update the graph
-            g = update_graph(g, src_ip, ttl, flow_id)
-        for probe, reply in replies:
-            src_ip  = extract_src_ip(reply)
-            flow_id = extract_flow_id_reply(reply)
-            probe_ttl     = extract_ttl(probe)
-            # Update the graph
-            g = update_graph(g, src_ip, probe_ttl, flow_id)
-            #graph_topology_draw(g)
-            print src_ip
-            if src_ip == destination:
-                has_found_destination = True
-        ttl = ttl + 1
+    execute_phase1(g, destination, vertex_confidence)
     #graph_topology_draw(g)
 
     #Phase 2
@@ -245,17 +271,17 @@ def main():
 
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
-    execute_phase3(g, destination, llb, limit_edges)
+    execute_phase3(g, destination, llb, vertex_confidence, limit_edges)
     clean_stars(g)
-    graph_topology_draw_with_inferred(g)
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
+    if output_file == "":
+        graph_topology_draw_with_inferred(g)
+    else:
+        g.save(output_file)
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
-    # Heuristics :
-    # 1) If all flows reconverge to 1 interface
-    # 2) If shared succesors
 if __name__ == "__main__":
     config.conf.L3socket = L3RawSocket
-    main()
+    main(sys.argv[1:])
