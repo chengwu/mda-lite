@@ -114,7 +114,12 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             if ttl == min(lb.get_ttl_vertices_number().keys()):
                 continue
-            if apply_has_predecessors_heuristic(g, ttl):
+            # Check if this TTL is a divergence point or a convergence point
+            if is_a_divergent_ttl(g, ttl):
+                has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
+            else:
+                has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+            if has_to_probe_more:
                 # Here it is more complicated, we have to infer multiple predecessors
                 missing_flows = find_missing_flows(g, ttl, ttl - 1)
                 check_predecessor_probes = []
@@ -135,7 +140,12 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
             for ttl, nint in lb.get_ttl_vertices_number().iteritems():
                 if ttl == min(lb.get_ttl_vertices_number().keys()):
                     continue
-                if apply_has_predecessors_heuristic(g, ttl):
+                # Check if this TTL is a divergence point or a convergence point
+                if is_a_divergent_ttl(g, ttl):
+                    has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
+                else:
+                    has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+                if has_to_probe_more:
                     has_to_apply_common_successors_heuristics = True
                     has_discovered_new_link = True
                     # Generate probes new flow_ids

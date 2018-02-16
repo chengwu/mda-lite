@@ -196,7 +196,7 @@ def find_no_successor_vertices(g, ttl):
             result.append(v)
     return result
 
-def apply_has_predecessors_heuristic(g, ttl):
+def apply_multiple_predecessors_heuristic(g, ttl):
     # Find if the the interfaces at ttl have common predecessors
 
     interfaces = find_vertex_by_ttl(g, ttl)
@@ -205,16 +205,18 @@ def apply_has_predecessors_heuristic(g, ttl):
         distinct_neighbors = set(interface.in_neighbors())
         if len(distinct_neighbors) > max_in_neighbor:
             max_in_neighbor = len(distinct_neighbors)
-    if max_in_neighbor <= 1:
-        # This means we have a pattern of a nested LB with disjoints central points
-        return False
-    for interface in interfaces:
-        for interface2 in interfaces:
-            if interface != interface2:
-                if len(set(interface.in_neighbors()).intersection(interface2.in_neighbors())) != 0:
-                    return True
-    return False
+    return max_in_neighbor > 1
 
+def apply_multiple_successors_heuristic(g, ttl):
+    # Find if the the interfaces at ttl have common predecessors
+
+    interfaces = find_vertex_by_ttl(g, ttl)
+    max_out_neighbor = 0
+    for interface in interfaces:
+        distinct_neighbors = set(interface.out_neighbors())
+        if len(distinct_neighbors) > max_out_neighbor:
+            max_out_neighbor = len(distinct_neighbors)
+    return max_out_neighbor > 1
 
 def apply_converging_heuristic(g, ttl, forward, backward):
     # This heuristic just infer divergence and then reconvergence
@@ -260,6 +262,11 @@ def apply_symmetry_heuristic(g, ttl, max_diff_degree_arg):
                 for d in difference:
                     e = g.add_edge(v2, d)
                     inferred[e] = True
+
+def is_a_divergent_ttl(g, ttl):
+    vertices_ttl = find_vertex_by_ttl(g, ttl)
+    vertices_ttl_pred = find_vertex_by_ttl(g, ttl -1)
+    return len(vertices_ttl) >= len(vertices_ttl_pred)
 
 def is_new_ip(g, ip):
     ip_address = g.vertex_properties["ip_address"]
