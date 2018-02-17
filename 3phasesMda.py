@@ -15,6 +15,10 @@ batch_link_probe_size = 30
 
 total_probe_sent = 0
 
+default_stop_on_consecutive_stars = 3
+
+default_ttl_to_detect_length_asymmetry = 2
+
 def increment_probe_sent(n):
     global total_probe_sent
     total_probe_sent = total_probe_sent + n
@@ -48,17 +52,28 @@ def reconnect_impl(g, destination, ttl, ttl2):
 
 
 def execute_phase1(g, destination, vertex_confidence):
-    has_found_destination = False
+    global default_stop_on_consecutive_stars
+    global default_ttl_to_detect_length_asymmetry
+    has_found_longest_path_to_destination = False
+    consecutive_only_star = 0
     ttl = 1
-    while not has_found_destination:
+    while not has_found_longest_path_to_destination:
+        if consecutive_only_star == default_stop_on_consecutive_stars:
+            print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm."
+            exit(0)
         phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
         replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
         increment_probe_sent(len(phase1_probes))
+        if len(replies) == 0:
+            consecutive_only_star = consecutive_only_star + 1
+        else:
+            consecutive_only_star = 0
         for probe in unanswered:
             flow_id = extract_flow_id_probe(probe)
             src_ip = "* * * " + str(ttl)
             # Update the graph
             g = update_graph(g, src_ip, ttl, flow_id)
+        replies_only_from_destination = True
         for probe, reply in replies:
             src_ip = extract_src_ip(reply)
             flow_id = extract_flow_id_reply(reply)
@@ -66,8 +81,11 @@ def execute_phase1(g, destination, vertex_confidence):
             # Update the graph
             g = update_graph(g, src_ip, probe_ttl, flow_id)
             # graph_topology_draw(g)
-            if src_ip == destination:
-                has_found_destination = True
+            print src_ip
+            if src_ip != destination:
+                replies_only_from_destination = False
+        if replies_only_from_destination:
+            has_found_longest_path_to_destination = True
         ttl = ttl + 1
 
 
@@ -233,7 +251,7 @@ def main(argv):
     # 1-2) hop by hop 6 probes to discover length + position of LB
     # 3) Load balancer discovery
 
-    print "Starting phase 1 and 2 : finding a length to the destination and the load balancers"
+    print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds"
     # Phase 1
     execute_phase1(g, destination, vertex_confidence)
     #graph_topology_draw(g)
@@ -243,6 +261,7 @@ def main(argv):
 
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
+    print "Starting phase 3 : finding the topology of the discovered diamonds"
     execute_phase3(g, destination, llb, vertex_confidence, limit_edges)
     clean_stars(g)
     print "Total probe sent : " + str(total_probe_sent)

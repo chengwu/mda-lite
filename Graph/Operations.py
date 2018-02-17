@@ -147,6 +147,16 @@ def dict_vertices_by_ttl(g):
 
     return dict_vertices_by_ttl
 
+def dict_vertices_by_ttl_without_useless_stars(g):
+    # Don't take stars into account except if it is the only interface seen at this hop
+    ip_address    = g.vertex_properties["ip_address"]
+    vertices_by_ttl = dict_vertices_by_ttl(g)
+    for ttl, vertices in vertices_by_ttl.iteritems():
+        wstar_vertices = filter(lambda v : not ip_address[v].startswith("* * *"), vertices)
+        if len(wstar_vertices) != 0:
+            vertices_by_ttl[ttl] = wstar_vertices
+    return vertices_by_ttl
+
 def find_consecutive_sequence(s):
     ll = []
     l= []
@@ -169,7 +179,7 @@ def find_consecutive_ttls(ttls_vertices):
 
 
 def extract_load_balancers(g):
-    vertices_by_ttl = dict_vertices_by_ttl(g)
+    vertices_by_ttl = dict_vertices_by_ttl_without_useless_stars(g)
     ttls = filter(lambda (ttl, vertices): len(vertices) > 1, vertices_by_ttl.iteritems())
     load_balancers = []
     consecutive_ttls = find_consecutive_ttls(ttls)
