@@ -263,6 +263,7 @@ def main(argv):
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
     execute_phase3(g, destination, llb, vertex_confidence, limit_edges)
+    remove_self_loops(g)
     clean_stars(g)
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
@@ -271,6 +272,7 @@ def main(argv):
         graph_topology_draw_with_inferred(g)
     else:
         g.save(output_file)
+    dump_results(g, destination)
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":

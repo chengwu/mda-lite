@@ -1,3 +1,5 @@
+import sys
+
 from graph_tool.all import *
 from Graph.LoadBalancer import *
 
@@ -316,6 +318,23 @@ def clean_stars(g):
             for v in filter:
                 display[v] = False
 
+def dump_results(g, destination):
+    ip_address = g.vertex_properties["ip_address"]
+    # The format is the following : (ttl) : [ip->[successors], ...]
+    for ttl in range(0, max_ttl):
+        vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+        if len(vertices_by_ttl) > 0:
+            sys.stdout.write("("+ str(ttl)+") : [")
+            for v in vertices_by_ttl:
+                if ip_address[v] != destination:
+                    sys.stdout.write(ip_address[v] + " -> ")
+                    addresses = [ip_address[succ] for succ in list(v.out_neighbors())]
+                    sys.stdout.write(str(addresses))
+                    sys.stdout.write("\n")
+                else:
+                    sys.stdout.write(ip_address[v])
+            sys.stdout.write("]\n")
+            sys.stdout.flush()
 
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]
