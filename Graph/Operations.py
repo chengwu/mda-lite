@@ -11,10 +11,13 @@ def init_graph():
     ttls_flow_ids = g.new_vertex_property("python::object")
 
     inferred = g.new_edge_property("bool", False)
+    edge_flows = g.new_edge_property("python::object")
+
 
     g.vertex_properties["ip_address"] = ip_address
     g.vertex_properties["ttls_flow_ids"] = ttls_flow_ids
     g.edge_properties["inferred"] = inferred
+    g.edge_properties["edge_flows"] = edge_flows
     source = g.add_vertex()
     ip_address[source] = "127.0.0.1"
     ttls_flow_ids[source] = {}
@@ -93,8 +96,16 @@ def dump_flows(g):
     for i in range(1, 30):
         print sorted(find_flows(g, i))
     return
+
+def tag_edge_flow(g, e, src_ttl, dst_ttl, flow_id, is_new_edge):
+    edge_flows = g.edge_properties["edge_flows"]
+    if is_new_edge:
+        edge_flows[e] = {}
+        edge_flows[e]["flows"] = []
+    edge_flows[e]["flows"].append({"flow_id": flow_id, "src_ttl":src_ttl, "dst_ttl": dst_ttl})
 def update_neigbours(g, v, ttl, flow_id):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+
     if ttls_flow_ids[v].has_key(ttl):
         ttls_flow_ids[v][ttl].append(flow_id)
     else:
@@ -102,12 +113,21 @@ def update_neigbours(g, v, ttl, flow_id):
     # Add the corresponding edges if there are to be added
     successor = find_vertex_by_ttl_flow_id(g, ttl+1, flow_id)
     if successor is not None:
-        # Multiple edges are possible here
-        g.add_edge(v, successor)
+        # Multiple edges are not possible here
+        e = g.edge(v, successor)
+        if e is None:
+            e = g.add_edge(v, successor)
+            tag_edge_flow(g, e, ttl, ttl+1, flow_id, True)
+        else:
+            tag_edge_flow(g, e, ttl, ttl+1, flow_id, False)
     predecessor = find_vertex_by_ttl_flow_id(g, ttl-1, flow_id)
     if predecessor is not None:
-        g.add_edge(predecessor, v)
-
+        e = g.edge(predecessor, v)
+        if e is None:
+            e = g.add_edge(predecessor, v)
+            tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
+        else:
+            tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
 def init_vertex(g, v, ip, ttl, flow_id):
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
@@ -317,6 +337,22 @@ def clean_stars(g):
         if not has_only_star:
             for v in filter:
                 display[v] = False
+
+def enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port):
+    flow["src_ip"] = source_ip
+    flow["dst_ip"] = destination
+    flow["protocol"] = protocol
+    flow["src_port"] = flow["flow_id"] + default_src_port
+    flow["dst_port"] = default_dst_port
+
+
+def enrich_flows(g, source_ip, destination, protocol, default_src_port, default_dst_port):
+    edge_flows = g.edge_properties["edge_flows"]
+    for e in g.edges():
+        flows = edge_flows[e]
+        if flows.has_key("flows"):
+            for flow in flows["flows"]:
+                enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port)
 
 def dump_results(g, destination):
     ip_address = g.vertex_properties["ip_address"]

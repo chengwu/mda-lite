@@ -17,8 +17,6 @@ total_probe_sent = 0
 
 default_stop_on_consecutive_stars = 3
 
-default_ttl_to_detect_length_asymmetry = 2
-
 def increment_probe_sent(n):
     global total_probe_sent
     total_probe_sent = total_probe_sent + n
@@ -56,7 +54,6 @@ def reconnect_impl(g, destination, ttl, ttl2):
 
 def execute_phase1(g, destination, vertex_confidence):
     global default_stop_on_consecutive_stars
-    global default_ttl_to_detect_length_asymmetry
     has_found_longest_path_to_destination = False
     consecutive_only_star = 0
     ttl = 1
@@ -228,10 +225,12 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
 
 def main(argv):
     # default values
+    protocol = "udp"
     limit_edges = 500
     vertex_confidence = 99
     output_file = ""
     with_inference = False
+    save_flows_infos = True
     try:
         opts, args = getopt.getopt(argv, "ho:c:b:i", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference"])
     except getopt.GetoptError:
@@ -273,9 +272,17 @@ def main(argv):
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
+
+
+
     if output_file == "":
         graph_topology_draw_with_inferred(g)
     else:
+        if save_flows_infos:
+            # Get source info
+            skeleton = build_ip_probe(destination, 1)
+            source_ip = extract_src_ip(skeleton)
+            enrich_flows(g, source_ip, destination, protocol, sport, dport)
         g.save(output_file)
     dump_results(g, destination)
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
