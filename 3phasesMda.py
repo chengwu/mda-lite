@@ -39,13 +39,16 @@ def reconnect_predecessors(g, destination, ttl):
 
 def reconnect_impl(g, destination, ttl, ttl2):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
-    no_predecessor_vertices = find_no_predecessor_vertices(g, ttl)
-    check_predecessor_probes = []
-    for v in no_predecessor_vertices:
+    if ttl > ttl2 :
+        no_neighbors_vertices = find_no_predecessor_vertices(g, ttl)
+    else:
+        no_neighbors_vertices = find_no_successor_vertices(g, ttl)
+    check_neighbors_probes = []
+    for v in no_neighbors_vertices:
         flow_id = ttls_flow_ids[v][ttl][0]
-        check_predecessor_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, answered = sr(check_predecessor_probes, timeout=5, verbose=False)
-    increment_probe_sent(len(check_predecessor_probes))
+        check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
+    replies, answered = sr(check_neighbors_probes, timeout=5, verbose=False)
+    increment_probe_sent(len(check_neighbors_probes))
     update_graph_from_replies(g, replies)
 
 
@@ -89,7 +92,7 @@ def execute_phase1(g, destination, vertex_confidence):
         ttl = ttl + 1
 
 
-def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
+def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, with_inference):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
@@ -117,16 +120,16 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
                     g = update_graph(g, src_ip, probe_ttl, flow_id)
                 nprobe_sent = nprobe_sent + nprobes
 
-            if len(lb.get_ttl_vertices_number()) == 1:
-                apply_converging_heuristic(g, ttl, forward=True, backward=True)
-            elif ttl == max(lb.get_ttl_vertices_number().keys()):
-                apply_converging_heuristic(g, ttl, forward=True, backward=False)
+            if with_inference:
+                if len(lb.get_ttl_vertices_number()) == 1:
+                    apply_converging_heuristic(g, ttl, forward=True, backward=True)
+                elif ttl == max(lb.get_ttl_vertices_number().keys()):
+                    apply_converging_heuristic(g, ttl, forward=True, backward=False)
     # Second round, reconnect all the nodes that have no successors or no predecessors
     for lb in llb:
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             reconnect_predecessors(g, destination, ttl)
             reconnect_successors(g, destination, ttl)
-    #graph_topology_draw(g)
     # Third round, try to infer the missing links if necessary from the flows you already have
     for lb in llb:
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
@@ -212,12 +215,14 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes):
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
                         dump_flows(g)
+
     # Apply final heuristics based on symetry to infer links
-    remove_parallel_edges(g)
-    for lb in llb:
-        # Filter the ttls where there are multiple predecessors
-        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
-            apply_symmetry_heuristic(g, ttl, 2)
+    if with_inference:
+        remove_parallel_edges(g)
+        for lb in llb:
+            # Filter the ttls where there are multiple predecessors
+            for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+                apply_symmetry_heuristic(g, ttl, 2)
     remove_parallel_edges(g)
 
 
@@ -226,12 +231,10 @@ def main(argv):
     limit_edges = 500
     vertex_confidence = 99
     output_file = ""
+    with_inference = False
     try:
-        opts, args = getopt.getopt(argv, "h:o:c:b:", ["ofile=", "vertex-confidence", "edge-budget"])
+        opts, args = getopt.getopt(argv, "ho:c:b:i", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference"])
     except getopt.GetoptError:
-        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
-        sys.exit(2)
-    if len(args) != 1:
         print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
         sys.exit(2)
     for opt, arg in opts:
@@ -244,6 +247,8 @@ def main(argv):
             vertex_confidence = int(arg)
         elif opt in ("-b", "--edge-budget"):
             limit_edges = int(arg)
+        elif opt in ("-i", "--with-inference"):
+            with_inference = True
     destination  = args[0]
 
     g = init_graph()
@@ -262,7 +267,7 @@ def main(argv):
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
-    execute_phase3(g, destination, llb, vertex_confidence, limit_edges)
+    execute_phase3(g, destination, llb, vertex_confidence, limit_edges, with_inference)
     remove_self_loops(g)
     clean_stars(g)
     print "Total probe sent : " + str(total_probe_sent)
