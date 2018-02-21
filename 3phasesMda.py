@@ -211,7 +211,7 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                                 discovered = discovered + 1
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
-                        dump_flows(g)
+                        #dump_flows(g)
 
     # Apply final heuristics based on symetry to infer links
     if with_inference:
@@ -222,24 +222,29 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                 apply_symmetry_heuristic(g, ttl, 2)
     remove_parallel_edges(g)
 
-
+def check_if_option(s, l, opts):
+    for opt, arg in opts:
+        if opt in (s, l):
+            return True
+    return False
 def main(argv):
     # default values
+    source_name = ""
     protocol = "udp"
-    limit_edges = 500
+    limit_edges = 3000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
-    save_flows_infos = True
+    save_flows_infos = False
     try:
-        opts, args = getopt.getopt(argv, "ho:c:b:i", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference"])
+        opts, args = getopt.getopt(argv, "ho:c:b:isS:", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference", "save-edge-flows", "source="])
     except getopt.GetoptError:
         print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
         sys.exit(2)
     for opt, arg in opts:
         if opt == '-h':
             print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
-            sys.exit()
+            sys.exit(2)
         elif opt in ("-o", "--ofile"):
             output_file = arg
         elif opt in ("-c", "--vertex-confidence"):
@@ -248,6 +253,17 @@ def main(argv):
             limit_edges = int(arg)
         elif opt in ("-i", "--with-inference"):
             with_inference = True
+        elif opt in ("-s", "--save-edge-flows"):
+            if check_if_option("-S", "--source", opts):
+                save_flows_infos = True
+            else:
+                print "Please provide a source if you want to save flows edges"
+                exit(2)
+        elif opt in ("-S", "--source"):
+            source_name = arg
+    if len(args) != 1:
+        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        sys.exit(2)
     destination  = args[0]
 
     g = init_graph()
@@ -280,8 +296,7 @@ def main(argv):
     else:
         if save_flows_infos:
             # Get source info
-            skeleton = build_ip_probe(destination, 1)
-            source_ip = extract_src_ip(skeleton)
+            source_ip = source_name
             enrich_flows(g, source_ip, destination, protocol, sport, dport)
         g.save(output_file)
     dump_results(g, destination)

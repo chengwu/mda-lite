@@ -360,7 +360,7 @@ def dump_results(g, destination):
     for ttl in range(0, max_ttl):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
         if len(vertices_by_ttl) > 0:
-            sys.stdout.write("("+ str(ttl)+") : [")
+            sys.stdout.write("("+ str(ttl)+") : ")
             for v in vertices_by_ttl:
                 if ip_address[v] != destination:
                     sys.stdout.write(ip_address[v] + " -> ")
@@ -369,7 +369,7 @@ def dump_results(g, destination):
                     sys.stdout.write("\n")
                 else:
                     sys.stdout.write(ip_address[v])
-            sys.stdout.write("]\n")
+            sys.stdout.write("\n")
             sys.stdout.flush()
 
 if __name__ == "__main__":
