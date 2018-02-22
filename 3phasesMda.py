@@ -17,7 +17,7 @@ total_probe_sent = 0
 
 default_stop_on_consecutive_stars = 3
 
-max_acceptable_asymmetry = 100
+max_acceptable_asymmetry = 400
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -160,7 +160,7 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
         max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
 
 
-def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, with_inference, nks):
+def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
@@ -213,7 +213,7 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
     # This number is parametrable
     links_probes_sent = 0
     has_to_apply_common_successors_heuristics = True
-    while links_probes_sent < limit_link_probes and has_to_apply_common_successors_heuristics:
+    while total_probe_sent < total_budget and links_probes_sent < limit_link_probes and has_to_apply_common_successors_heuristics:
         has_to_apply_common_successors_heuristics = False
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
@@ -245,7 +245,7 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                         increment_probe_sent(len(check_links_probes))
                         replies, answered = sr(check_links_probes, timeout=1, verbose=False)
                         discovered = 0
-
+                        links_probes_sent += len(check_links_probes)
                         for probe, reply in replies:
                             src_ip = extract_src_ip(reply)
                             flow_id = extract_flow_id_reply(reply)
@@ -255,7 +255,6 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                                 discovered = discovered + 1
                             # Update the graph
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
-                        links_probes_sent = links_probes_sent + batch_link_probe_size
                         # With the new flows generated, find the missing flows at ttl-1
                         check_missing_flow_probes = []
                         missing_flows = find_missing_flows(g, ttl, ttl-1)
@@ -272,10 +271,10 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                                 has_discovered_new_link = True
                                 discovered = discovered + 1
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
-                        links_probes_sent = links_probes_sent + len(check_missing_flow_probes)
-                        #dump_flows(g)
+                        links_probes_sent += len(check_missing_flow_probes)
+                        dump_flows(g)
 
-    # Apply final heuristics based on symetry to infer links
+    # Apply final heuristics based on symmetry to infer links
     if with_inference:
         remove_parallel_edges(g)
         for lb in llb:
@@ -293,6 +292,7 @@ def main(argv):
     # default values
     source_name = ""
     protocol = "udp"
+    total_budget = 3000
     limit_edges = 500
     vertex_confidence = 99
     output_file = ""
@@ -344,7 +344,7 @@ def main(argv):
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
-    execute_phase3(g, destination, llb, vertex_confidence, limit_edges, with_inference, nk99)
+    execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
     remove_self_loops(g)
     clean_stars(g)
     print "Total probe sent : " + str(total_probe_sent)
