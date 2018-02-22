@@ -292,7 +292,7 @@ def main(argv):
     # default values
     source_name = ""
     protocol = "udp"
-    total_budget = 3000
+    total_budget = 20000
     limit_edges = 500
     vertex_confidence = 99
     output_file = ""
@@ -347,6 +347,7 @@ def main(argv):
     execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
     remove_self_loops(g)
     clean_stars(g)
+    print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
