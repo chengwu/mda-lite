@@ -8,7 +8,7 @@ from Packets.Utils import *
 from Graph.Operations import *
 from Graph.Visualization import *
 from Graph.Statistics import *
-
+from Graph.Probabilities import  *
 
 # Link batches
 batch_link_probe_size = 30
@@ -16,6 +16,8 @@ batch_link_probe_size = 30
 total_probe_sent = 0
 
 default_stop_on_consecutive_stars = 3
+
+max_acceptable_asymmetry = 100
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -50,6 +52,35 @@ def reconnect_impl(g, destination, ttl, ttl2):
     update_graph_from_replies(g, replies)
 
 
+def reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl2):
+    missing_flows = find_missing_flows(g, ttl, ttl2)
+    check_predecessor_probes = []
+    for flow_id in missing_flows:
+        check_predecessor_probes.append(build_probe(destination, ttl2, flow_id))
+    increment_probe_sent(len(check_predecessor_probes))
+    replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
+    update_graph_from_replies(g, replies)
+
+def reconnect_all_succ_flows_ttl(g, destination, ttl):
+    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl - 1)
+
+def reconnect_all_pred_flows_ttl(g, destination, ttl):
+    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl + 1)
+
+def reconnect_all_flows(g, destination, llb):
+    # Third round, try to infer the missing links if necessary from the flows we already have
+    for lb in llb:
+        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            if ttl == min(lb.get_ttl_vertices_number().keys()):
+                continue
+            # Check if this TTL is a divergence point or a convergence point
+            # if is_a_divergent_ttl(g, ttl):
+            #    has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
+            # else:
+            #    has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+            # if has_to_probe_more:
+            # Here it is more complicated, we have to infer multiple predecessors
+            reconnect_all_pred_flows_ttl(g, destination, ttl)
 
 
 def execute_phase1(g, destination, vertex_confidence):
@@ -88,64 +119,89 @@ def execute_phase1(g, destination, vertex_confidence):
             has_found_longest_path_to_destination = True
         ttl = ttl + 1
 
+def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
+    while nprobe_sent < nks[hypothesis]:
+        next_flow_id = find_max_flow_id(g, ttl)
+        nprobes = nks[hypothesis] - nprobe_sent
+        probes = []
+        # Generate the nprobes
+        for j in range(1, nprobes + 1):
+            probes.append(build_probe(destination, ttl, next_flow_id + j))
+        increment_probe_sent(len(probes))
+        replies, answered = sr(probes, timeout=1, verbose=False)
+        for probe, reply in replies:
+            src_ip = extract_src_ip(reply)
+            flow_id = extract_flow_id_reply(reply)
+            probe_ttl = extract_ttl(probe)
+            if is_new_ip(g, src_ip):
+                hypothesis = hypothesis + 1
+            # Update the graph
+            g = update_graph(g, src_ip, probe_ttl, flow_id)
+        nprobe_sent = nprobe_sent + nprobes
 
-def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, with_inference):
+def probe_asymmetry_ttl(g, destination, ttl, nprobe_sent, max_probe_needed, nks):
+    while nprobe_sent < max_probe_needed:
+        next_flow_id = find_max_flow_id(g, ttl)
+        nprobes = max_probe_needed - nprobe_sent
+        probes = []
+        # Generate the nprobes
+        for j in range(1, nprobes + 1):
+            probes.append(build_probe(destination, ttl, next_flow_id + j))
+        increment_probe_sent(len(probes))
+        replies, answered = sr(probes, timeout=1, verbose=False)
+        for probe, reply in replies:
+            src_ip = extract_src_ip(reply)
+            flow_id = extract_flow_id_reply(reply)
+            probe_ttl = extract_ttl(probe)
+            if is_new_ip(g, src_ip):
+                hypothesis = hypothesis + 1
+            # Update the graph
+            g = update_graph(g, src_ip, probe_ttl, flow_id)
+        nprobe_sent = nprobe_sent + nprobes
+
+
+def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, with_inference, nks):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
         # nint is the number of already discovered interfaces
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             # TODO Parametrize the nks
-            nprobe_sent = find_probes_sent(g, ttl)
-            hypothesis = nint + 1
-            while nprobe_sent < nk99[hypothesis]:
-                next_flow_id = find_max_flow_id(g, ttl)
-                nprobes = nk99[hypothesis] - nprobe_sent
-                probes  = []
-                # Generate the nprobes
-                for j in range(1, nprobes + 1):
-                    probes.append(build_probe(destination, ttl, next_flow_id + j))
-                increment_probe_sent(len(probes))
-                replies, answered = sr(probes, timeout=1, verbose=False)
-                for probe, reply in replies:
-                    src_ip = extract_src_ip(reply)
-                    flow_id = extract_flow_id_reply(reply)
-                    probe_ttl = extract_ttl(probe)
-                    if is_new_ip(g, src_ip):
-                        hypothesis = hypothesis + 1
-                    # Update the graph
-                    g = update_graph(g, src_ip, probe_ttl, flow_id)
-                nprobe_sent = nprobe_sent + nprobes
+            probe_until_nk(g, destination, ttl, find_probes_sent(g, ttl), nint+1)
+            # Check if this is a divergent ttl and if we found cross edges
+            is_divergent_ttl = is_a_divergent_ttl(g, ttl)
+            if is_divergent_ttl:
+                # Reconnect predecessors with all flows available in order to figure out width asymmetry
+                reconnect_all_pred_flows_ttl(g, destination, ttl)
+                has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
+                # If we find width asymmetry with no cross edges, adapt nks
+                degrees = out_degrees_ttl(g, ttl - 1)
+            else:
+                reconnect_all_succ_flows_ttl(g, destination, ttl)
+                has_cross_edges = apply_multiple_successors_heuristic(g, ttl)
+                degrees = in_degrees_ttl(g, ttl)
+            if len(set(degrees)) != 1 and not has_cross_edges:
+                # Here we have to pass in a "local" mode with nk's for each node.
+                # Find the number of different interfaces discovered for each node at this ttl
+                # If the asymmetry is too high, meaning we are gonna loose a lot of probes to reach nks,
+                # do not do it
+                max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
+                if max_probe_needed - find_probes_sent(g, ttl) <= max_acceptable_asymmetry:
+
 
             if with_inference:
                 if len(lb.get_ttl_vertices_number()) == 1:
                     apply_converging_heuristic(g, ttl, forward=True, backward=True)
                 elif ttl == max(lb.get_ttl_vertices_number().keys()):
                     apply_converging_heuristic(g, ttl, forward=True, backward=False)
+
     # Second round, reconnect all the nodes that have no successors or no predecessors
     for lb in llb:
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
             reconnect_predecessors(g, destination, ttl)
             reconnect_successors(g, destination, ttl)
-    # Third round, try to infer the missing links if necessary from the flows you already have
-    for lb in llb:
-        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
-            if ttl == min(lb.get_ttl_vertices_number().keys()):
-                continue
-            # Check if this TTL is a divergence point or a convergence point
-            if is_a_divergent_ttl(g, ttl):
-                has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
-            else:
-                has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
-            if has_to_probe_more:
-                # Here it is more complicated, we have to infer multiple predecessors
-                missing_flows = find_missing_flows(g, ttl, ttl - 1)
-                check_predecessor_probes = []
-                for flow_id in missing_flows:
-                    check_predecessor_probes.append(build_probe(destination, ttl-1, flow_id))
-                increment_probe_sent(len(check_predecessor_probes))
-                replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
-                update_graph_from_replies(g, replies)
+    # Third round, try to infer the missing links if necessary from the flows we already have
+    reconnect_all_flows(g, destination, llb)
 
     # Fourth round, try to infer the missing links by generating new flows
     # This number is parametrable

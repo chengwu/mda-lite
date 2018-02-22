@@ -50,6 +50,29 @@ def find_vertex_by_ttl_flow_id(g, ttl, flow_id):
                 return v
     return None
 
+
+def find_neighbors_ttl(g, v, ttl, ttl2):
+    # Here just filter on out_neighbors does not work because the nodes could be neighbors
+    # for another ttl
+
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    vflow_ids = ttls_flow_ids[v][ttl]
+    potential_predecessors = find_vertex_by_ttl(g, ttl2)
+    predecessors = []
+    for pred in potential_predecessors:
+        for hop, flow_ids in ttls_flow_ids[pred].iteritems():
+            if hop == ttl2:
+                l = len(set(flow_ids).intersection(vflow_ids))
+                if l != 0:
+                    predecessors.append(pred)
+    return predecessors
+
+def find_predecessors_ttl(g, v, ttl):
+    return find_neighbors_ttl(g, v, ttl, ttl-1)
+
+def find_successors_ttl(g, v, ttl):
+    return find_neighbors_ttl(g, v, ttl, ttl+1)
+
 def find_max_flow_id(g, ttl):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     max_flow_id = -1
@@ -240,7 +263,7 @@ def apply_multiple_predecessors_heuristic(g, ttl):
     return max_in_neighbor > 1
 
 def apply_multiple_successors_heuristic(g, ttl):
-    # Find if the the interfaces at ttl have common predecessors
+    # Find if the the interfaces at ttl have common successors
 
     interfaces = find_vertex_by_ttl(g, ttl)
     max_out_neighbor = 0
@@ -299,6 +322,20 @@ def is_a_divergent_ttl(g, ttl):
     vertices_ttl = find_vertex_by_ttl(g, ttl)
     vertices_ttl_pred = find_vertex_by_ttl(g, ttl -1)
     return len(vertices_ttl) >= len(vertices_ttl_pred)
+
+def out_degrees_ttl(g, ttl):
+    vertices_ttl_pred = find_vertex_by_ttl(g, ttl)
+    distinct_succ_number = []
+    for v in vertices_ttl_pred:
+        distinct_succ_number.append(v.out_degree())
+    return distinct_succ_number
+
+def in_degrees_ttl(g, ttl):
+    vertices_ttl_pred = find_vertex_by_ttl(g, ttl)
+    distinct_succ_number = []
+    for v in vertices_ttl_pred:
+        distinct_succ_number.append(v.in_degree())
+    return distinct_succ_number
 
 def is_new_ip(g, ip):
     ip_address = g.vertex_properties["ip_address"]

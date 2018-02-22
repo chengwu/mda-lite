@@ -27,3 +27,9 @@ def get_nks():
         nks95.append(b[0])
         nks99.append(b[1])
     return nks95, nks99
+
+
+if __name__ == "__main__":
+    print nks[6][1]
+    print nks[4][1]
+    print "Test"
