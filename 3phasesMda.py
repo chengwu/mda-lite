@@ -139,7 +139,7 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
             g = update_graph(g, src_ip, probe_ttl, flow_id)
         nprobe_sent = nprobe_sent + nprobes
 
-def probe_asymmetry_ttl(g, destination, ttl, nprobe_sent, max_probe_needed, nks):
+def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, nks):
     while nprobe_sent < max_probe_needed:
         next_flow_id = find_max_flow_id(g, ttl)
         nprobes = max_probe_needed - nprobe_sent
@@ -153,11 +153,11 @@ def probe_asymmetry_ttl(g, destination, ttl, nprobe_sent, max_probe_needed, nks)
             src_ip = extract_src_ip(reply)
             flow_id = extract_flow_id_reply(reply)
             probe_ttl = extract_ttl(probe)
-            if is_new_ip(g, src_ip):
-                hypothesis = hypothesis + 1
             # Update the graph
             g = update_graph(g, src_ip, probe_ttl, flow_id)
         nprobe_sent = nprobe_sent + nprobes
+        reconnect_all_pred_flows_ttl(g, destination, ttl)
+        max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
 
 
 def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, with_inference, nks):
@@ -186,9 +186,9 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
                 # If the asymmetry is too high, meaning we are gonna loose a lot of probes to reach nks,
                 # do not do it
                 max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
-                if max_probe_needed - find_probes_sent(g, ttl) <= max_acceptable_asymmetry:
-
-
+                probe_sent = find_probes_sent(g, ttl)
+                if max_probe_needed - probe_sent <= max_acceptable_asymmetry:
+                    probe_asymmetry_ttl(g, destination, lb, ttl, probe_sent, max_probe_needed, nks)
             if with_inference:
                 if len(lb.get_ttl_vertices_number()) == 1:
                     apply_converging_heuristic(g, ttl, forward=True, backward=True)
