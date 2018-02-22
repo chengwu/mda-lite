@@ -62,10 +62,10 @@ def reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl2):
     update_graph_from_replies(g, replies)
 
 def reconnect_all_succ_flows_ttl(g, destination, ttl):
-    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl - 1)
+    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl + 1)
 
 def reconnect_all_pred_flows_ttl(g, destination, ttl):
-    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl + 1)
+    reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl - 1)
 
 def reconnect_all_flows(g, destination, llb):
     # Third round, try to infer the missing links if necessary from the flows we already have
@@ -74,13 +74,13 @@ def reconnect_all_flows(g, destination, llb):
             if ttl == min(lb.get_ttl_vertices_number().keys()):
                 continue
             # Check if this TTL is a divergence point or a convergence point
-            # if is_a_divergent_ttl(g, ttl):
-            #    has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
-            # else:
-            #    has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
-            # if has_to_probe_more:
-            # Here it is more complicated, we have to infer multiple predecessors
-            reconnect_all_pred_flows_ttl(g, destination, ttl)
+            if is_a_divergent_ttl(g, ttl):
+               has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
+            else:
+               has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+            if has_to_probe_more:
+                # Here it is more complicated, we have to infer multiple predecessors
+                reconnect_all_pred_flows_ttl(g, destination, ttl)
 
 
 def execute_phase1(g, destination, vertex_confidence):
@@ -156,7 +156,7 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
             # Update the graph
             g = update_graph(g, src_ip, probe_ttl, flow_id)
         nprobe_sent = nprobe_sent + nprobes
-        reconnect_all_pred_flows_ttl(g, destination, ttl)
+        reconnect_predecessors(g, destination, ttl)
         max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
 
 
@@ -166,34 +166,40 @@ def execute_phase3(g, destination, llb, vertex_confidence, limit_link_probes, wi
     for lb in llb:
         # nint is the number of already discovered interfaces
         for ttl, nint in lb.get_ttl_vertices_number().iteritems():
-            # TODO Parametrize the nks
-            probe_until_nk(g, destination, ttl, find_probes_sent(g, ttl), nint+1)
+            probe_until_nk(g, destination, ttl, find_probes_sent(g, ttl), nint+1, nks)
             # Check if this is a divergent ttl and if we found cross edges
             is_divergent_ttl = is_a_divergent_ttl(g, ttl)
-            if is_divergent_ttl:
-                # Reconnect predecessors with all flows available in order to figure out width asymmetry
-                reconnect_all_pred_flows_ttl(g, destination, ttl)
-                has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
-                # If we find width asymmetry with no cross edges, adapt nks
-                degrees = out_degrees_ttl(g, ttl - 1)
-            else:
-                reconnect_all_succ_flows_ttl(g, destination, ttl)
-                has_cross_edges = apply_multiple_successors_heuristic(g, ttl)
-                degrees = in_degrees_ttl(g, ttl)
-            if len(set(degrees)) != 1 and not has_cross_edges:
-                # Here we have to pass in a "local" mode with nk's for each node.
-                # Find the number of different interfaces discovered for each node at this ttl
-                # If the asymmetry is too high, meaning we are gonna loose a lot of probes to reach nks,
-                # do not do it
-                max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
-                probe_sent = find_probes_sent(g, ttl)
-                if max_probe_needed - probe_sent <= max_acceptable_asymmetry:
-                    probe_asymmetry_ttl(g, destination, lb, ttl, probe_sent, max_probe_needed, nks)
-            if with_inference:
-                if len(lb.get_ttl_vertices_number()) == 1:
-                    apply_converging_heuristic(g, ttl, forward=True, backward=True)
-                elif ttl == max(lb.get_ttl_vertices_number().keys()):
-                    apply_converging_heuristic(g, ttl, forward=True, backward=False)
+            vertices_prev_ttl = find_vertex_by_ttl(g, ttl-1)
+            if len(vertices_prev_ttl) == 1:
+                # Only reconnect predecessors if we know we have only one pred at ttl-1
+                reconnect_predecessors(g, destination, ttl)
+            elif len(vertices_prev_ttl) > 1:
+                if is_divergent_ttl:
+                    # Reconnect predecessors with all flows available in order to figure out width asymmetry
+                    #reconnect_all_pred_flows_ttl(g, destination, ttl)
+                    reconnect_predecessors(g, destination, ttl)
+                    has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
+                    # If we find width asymmetry with no cross edges, adapt nks
+                    degrees = out_degrees_ttl(g, ttl - 1)
+                else:
+                    reconnect_successors(g, destination, ttl-1)
+                    #reconnect_all_succ_flows_ttl(g, destination, ttl-1)
+                    has_cross_edges = apply_multiple_successors_heuristic(g, ttl-1)
+                    degrees = in_degrees_ttl(g, ttl)
+                if len(set(degrees)) != 1 and not has_cross_edges:
+                    # Here we have to pass in a "local" mode with nk's for each node.
+                    # Find the number of different interfaces discovered for each node at this ttl
+                    # If the asymmetry is too high, meaning we are gonna loose a lot of probes to reach nks,
+                    # do not do it
+                    max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
+                    probe_sent = find_probes_sent(g, ttl)
+                    if max_probe_needed - probe_sent <= max_acceptable_asymmetry:
+                        probe_asymmetry_ttl(g, destination, lb, ttl, probe_sent, max_probe_needed, nks)
+                if with_inference:
+                    if len(lb.get_ttl_vertices_number()) == 1:
+                        apply_converging_heuristic(g, ttl, forward=True, backward=True)
+                    elif ttl == max(lb.get_ttl_vertices_number().keys()):
+                        apply_converging_heuristic(g, ttl, forward=True, backward=False)
 
     # Second round, reconnect all the nodes that have no successors or no predecessors
     for lb in llb:
@@ -287,7 +293,7 @@ def main(argv):
     # default values
     source_name = ""
     protocol = "udp"
-    limit_edges = 3000
+    limit_edges = 500
     vertex_confidence = 99
     output_file = ""
     with_inference = False
@@ -338,7 +344,7 @@ def main(argv):
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
-    execute_phase3(g, destination, llb, vertex_confidence, limit_edges, with_inference)
+    execute_phase3(g, destination, llb, vertex_confidence, limit_edges, with_inference, nk99)
     remove_self_loops(g)
     clean_stars(g)
     print "Total probe sent : " + str(total_probe_sent)
