@@ -95,8 +95,10 @@ def execute_phase1(g, destination, vertex_confidence):
         phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
         replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
         increment_probe_sent(len(phase1_probes))
+        replies_only_from_destination = True
         if len(replies) == 0:
             consecutive_only_star = consecutive_only_star + 1
+            replies_only_from_destination = False
         else:
             consecutive_only_star = 0
         for probe in unanswered:
@@ -104,7 +106,6 @@ def execute_phase1(g, destination, vertex_confidence):
             src_ip = "* * * " + str(ttl)
             # Update the graph
             g = update_graph(g, src_ip, ttl, flow_id)
-        replies_only_from_destination = True
         for probe, reply in replies:
             src_ip = extract_src_ip(reply)
             flow_id = extract_flow_id_reply(reply)
