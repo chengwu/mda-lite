@@ -272,7 +272,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                                 discovered = discovered + 1
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent += len(check_missing_flow_probes)
-                        dump_flows(g)
+                        #dump_flows(g)
 
     # Apply final heuristics based on symmetry to infer links
     if with_inference:
