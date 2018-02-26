@@ -62,11 +62,13 @@ def reconnect_flows_ttl_impl(g, destination, ttl, ttl2, flow_number):
     vertices_ttl = find_vertex_by_ttl(g, ttl)
     check_neighbors_probes = []
     for v in vertices_ttl:
-        for i in range(1, flow_number):
+        for i in range(1, flow_number+1):
             flow_ids_ttl = ttls_flow_ids[v][ttl]
+            flow_id = ttls_flow_ids[v][ttl][i - 1]
             if len(flow_ids_ttl) >= i:
-                flow_id = ttls_flow_ids[v][ttl][i-1]
-                check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
+                predecessor = find_vertex_by_ttl_flow_id(g, ttl2, flow_id)
+                if predecessor is None:
+                    check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
     replies, answered = sr(check_neighbors_probes, timeout=5, verbose=False)
     increment_probe_sent(len(check_neighbors_probes))
     update_graph_from_replies(g, replies)
@@ -190,10 +192,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             # Check if this is a divergent ttl and if we found cross edges
             is_divergent_ttl = is_a_divergent_ttl(g, ttl)
             vertices_prev_ttl = find_vertex_by_ttl(g, ttl-1)
+            vertices_next_ttl = find_vertex_by_ttl(g, ttl+1)
             if len(vertices_prev_ttl) == 1:
                 # Only reconnect predecessors if we know we have only one pred at ttl-1
                 reconnect_predecessors(g, destination, ttl)
-            elif len(vertices_prev_ttl) > 1:
+            if len(vertices_next_ttl) == 1:
+                reconnect_successors(g, destination, ttl)
+            if len(vertices_prev_ttl) > 1:
                 if is_divergent_ttl:
                     # Reconnect predecessors with a certain number of flows available in order to figure out width asymmetry
                     reconnect_flows_ttl_predecessor(g, destination, ttl, 2)
@@ -219,13 +224,11 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     elif ttl == max(lb.get_ttl_vertices_number().keys()):
                         apply_converging_heuristic(g, ttl, forward=True, backward=False)
 
-    # Second round, reconnect all the nodes that have no successors or no predecessors
-    for lb in llb:
-        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
-            reconnect_predecessors(g, destination, ttl)
-            reconnect_successors(g, destination, ttl)
-    # Third round, try to infer the missing links if necessary from the flows we already have
-    reconnect_all_flows(g, destination, llb)
+    # Second step has been done previously by reconnecting two flows by divergent/convergent hop
+    # to discover if a topology is asymmetric
+
+    # Third step, try to infer the missing links if necessary from the flows we already have
+    #reconnect_all_flows(g, destination, llb)
 
     # Fourth round, try to infer the missing links by generating new flows
     # This number is parametrable
@@ -311,7 +314,7 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 20000
-    limit_edges = 500
+    limit_edges = 2500
     vertex_confidence = 99
     output_file = ""
     with_inference = False
