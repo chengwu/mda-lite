@@ -30,6 +30,6 @@ def get_nks():
 
 
 if __name__ == "__main__":
-    print nks[6][1]
+    print nks[32][1]
     print nks[4][1]
     print "Test"

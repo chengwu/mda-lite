@@ -51,6 +51,25 @@ def reconnect_impl(g, destination, ttl, ttl2):
     increment_probe_sent(len(check_neighbors_probes))
     update_graph_from_replies(g, replies)
 
+# These functions reconnect a flow_number number of flows (serves for checking cross edges)
+def reconnect_flows_ttl_predecessor(g, destination, ttl, flow_number):
+    reconnect_flows_ttl_impl(g, destination, ttl, ttl - 1, flow_number)
+
+def reconnect_flows_ttl_successor(g, destination, ttl, flow_number):
+    reconnect_flows_ttl_impl(g, destination, ttl , ttl + 1, flow_number)
+def reconnect_flows_ttl_impl(g, destination, ttl, ttl2, flow_number):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    vertices_ttl = find_vertex_by_ttl(g, ttl)
+    check_neighbors_probes = []
+    for v in vertices_ttl:
+        for i in range(1, flow_number):
+            flow_ids_ttl = ttls_flow_ids[v][ttl]
+            if len(flow_ids_ttl) >= i:
+                flow_id = ttls_flow_ids[v][ttl][i-1]
+                check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
+    replies, answered = sr(check_neighbors_probes, timeout=5, verbose=False)
+    increment_probe_sent(len(check_neighbors_probes))
+    update_graph_from_replies(g, replies)
 
 def reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl2):
     missing_flows = find_missing_flows(g, ttl, ttl2)
@@ -176,15 +195,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                 reconnect_predecessors(g, destination, ttl)
             elif len(vertices_prev_ttl) > 1:
                 if is_divergent_ttl:
-                    # Reconnect predecessors with all flows available in order to figure out width asymmetry
-                    #reconnect_all_pred_flows_ttl(g, destination, ttl)
-                    reconnect_predecessors(g, destination, ttl)
+                    # Reconnect predecessors with a certain number of flows available in order to figure out width asymmetry
+                    reconnect_flows_ttl_predecessor(g, destination, ttl, 2)
                     has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
                     # If we find width asymmetry with no cross edges, adapt nks
                     degrees = out_degrees_ttl(g, ttl - 1)
                 else:
-                    reconnect_successors(g, destination, ttl-1)
-                    #reconnect_all_succ_flows_ttl(g, destination, ttl-1)
+                    reconnect_flows_ttl_successor(g, destination, ttl, 2)
                     has_cross_edges = apply_multiple_successors_heuristic(g, ttl-1)
                     degrees = in_degrees_ttl(g, ttl)
                 if len(set(degrees)) != 1 and not has_cross_edges:
