@@ -206,7 +206,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     # If we find width asymmetry with no cross edges, adapt nks
                     degrees = out_degrees_ttl(g, ttl - 1)
                 else:
-                    reconnect_flows_ttl_successor(g, destination, ttl, 2)
+                    reconnect_flows_ttl_successor(g, destination, ttl-1, 2)
                     has_cross_edges = apply_multiple_successors_heuristic(g, ttl-1)
                     degrees = in_degrees_ttl(g, ttl)
                 if len(set(degrees)) != 1 and not has_cross_edges:
@@ -314,7 +314,7 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 20000
-    limit_edges = 2500
+    limit_edges = 500
     vertex_confidence = 99
     output_file = ""
     with_inference = False
