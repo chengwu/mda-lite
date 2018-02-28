@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from scapy import config
 import sys, getopt
 config.Conf.load_layers.remove("x509")
@@ -18,6 +20,8 @@ total_probe_sent = 0
 default_stop_on_consecutive_stars = 3
 
 max_acceptable_asymmetry = 400
+
+default_timeout = 0.5
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -47,7 +51,7 @@ def reconnect_impl(g, destination, ttl, ttl2):
     for v in no_neighbors_vertices:
         flow_id = ttls_flow_ids[v][ttl][0]
         check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, answered = sr(check_neighbors_probes, timeout=5, verbose=False)
+    replies, answered = sr(check_neighbors_probes, timeout=default_timeout, verbose=False)
     increment_probe_sent(len(check_neighbors_probes))
     update_graph_from_replies(g, replies)
 
@@ -64,12 +68,12 @@ def reconnect_flows_ttl_impl(g, destination, ttl, ttl2, flow_number):
     for v in vertices_ttl:
         for i in range(1, flow_number+1):
             flow_ids_ttl = ttls_flow_ids[v][ttl]
-            flow_id = ttls_flow_ids[v][ttl][i - 1]
             if len(flow_ids_ttl) >= i:
+                flow_id = ttls_flow_ids[v][ttl][i - 1]
                 predecessor = find_vertex_by_ttl_flow_id(g, ttl2, flow_id)
                 if predecessor is None:
                     check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, answered = sr(check_neighbors_probes, timeout=5, verbose=False)
+    replies, answered = sr(check_neighbors_probes, timeout=default_timeout, verbose=False)
     increment_probe_sent(len(check_neighbors_probes))
     update_graph_from_replies(g, replies)
 
@@ -79,7 +83,7 @@ def reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl2):
     for flow_id in missing_flows:
         check_predecessor_probes.append(build_probe(destination, ttl2, flow_id))
     increment_probe_sent(len(check_predecessor_probes))
-    replies, answered = sr(check_predecessor_probes, timeout=1, verbose=False)
+    replies, answered = sr(check_predecessor_probes, timeout=default_timeout, verbose=False)
     update_graph_from_replies(g, replies)
 
 def reconnect_all_succ_flows_ttl(g, destination, ttl):
@@ -112,9 +116,9 @@ def execute_phase1(g, destination, vertex_confidence):
     while not has_found_longest_path_to_destination:
         if consecutive_only_star == default_stop_on_consecutive_stars:
             print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm."
-            exit(0)
+            return True
         phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
-        replies, unanswered = sr(phase1_probes, timeout=5, verbose=True)
+        replies, unanswered = sr(phase1_probes, timeout=default_timeout, verbose=True)
         increment_probe_sent(len(phase1_probes))
         replies_only_from_destination = True
         if len(replies) == 0:
@@ -140,7 +144,7 @@ def execute_phase1(g, destination, vertex_confidence):
         if replies_only_from_destination:
             has_found_longest_path_to_destination = True
         ttl = ttl + 1
-
+    return False
 def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
     while nprobe_sent < nks[hypothesis]:
         next_flow_id = find_max_flow_id(g, ttl)
@@ -150,7 +154,7 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
         for j in range(1, nprobes + 1):
             probes.append(build_probe(destination, ttl, next_flow_id + j))
         increment_probe_sent(len(probes))
-        replies, answered = sr(probes, timeout=1, verbose=False)
+        replies, answered = sr(probes, timeout=default_timeout, verbose=False)
         for probe, reply in replies:
             src_ip = extract_src_ip(reply)
             flow_id = extract_flow_id_reply(reply)
@@ -170,7 +174,7 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
         for j in range(1, nprobes + 1):
             probes.append(build_probe(destination, ttl, next_flow_id + j))
         increment_probe_sent(len(probes))
-        replies, answered = sr(probes, timeout=1, verbose=False)
+        replies, answered = sr(probes, timeout=default_timeout, verbose=False)
         for probe, reply in replies:
             src_ip = extract_src_ip(reply)
             flow_id = extract_flow_id_reply(reply)
@@ -234,8 +238,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
     # This number is parametrable
     links_probes_sent = 0
     has_to_apply_common_successors_heuristics = True
-    while total_probe_sent < total_budget and links_probes_sent < limit_link_probes and has_to_apply_common_successors_heuristics:
+    responding = True
+    while total_probe_sent < total_budget \
+            and links_probes_sent < limit_link_probes\
+            and has_to_apply_common_successors_heuristics\
+            and responding:
         has_to_apply_common_successors_heuristics = False
+        responding = False
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in lb.get_ttl_vertices_number().iteritems():
@@ -264,9 +273,11 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         for i in range(1, batch_link_probe_size+1-len(overflows)):
                             check_links_probes.append(build_probe(destination, ttl, next_flow_id + i))
                         increment_probe_sent(len(check_links_probes))
-                        replies, answered = sr(check_links_probes, timeout=1, verbose=False)
+                        replies, answered = sr(check_links_probes, timeout=default_timeout, verbose=False)
                         discovered = 0
                         links_probes_sent += len(check_links_probes)
+                        if len(replies) > 0:
+                            responding = True
                         for probe, reply in replies:
                             src_ip = extract_src_ip(reply)
                             flow_id = extract_flow_id_reply(reply)
@@ -282,7 +293,9 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         for flow in missing_flows:
                             check_missing_flow_probes.append(build_probe(destination, ttl - 1, flow))
                         increment_probe_sent(len(check_missing_flow_probes))
-                        replies, answered = sr(check_missing_flow_probes, timeout=5, verbose=False)
+                        replies, answered = sr(check_missing_flow_probes, timeout=default_timeout, verbose=False)
+                        if len(replies) > 0:
+                            responding = True
                         for probe, reply in replies:
                             src_ip = extract_src_ip(reply)
                             flow_id = extract_flow_id_reply(reply)
@@ -314,7 +327,7 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 20000
-    limit_edges = 500
+    limit_edges = 8000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
@@ -356,16 +369,16 @@ def main(argv):
 
     print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds"
     # Phase 1
-    execute_phase1(g, destination, vertex_confidence)
+    has_exited_on_consecutive_stars = execute_phase1(g, destination, vertex_confidence)
     #graph_topology_draw(g)
+    if not has_exited_on_consecutive_stars:
+        #Phase 2
+        llb = extract_load_balancers(g)
 
-    #Phase 2
-    llb = extract_load_balancers(g)
-
-    # We assume symmetry until we discover that it is not.
-    # First reach the nks for this corresponding hops.
-    print "Starting phase 3 : finding the topology of the discovered diamonds"
-    execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
+        # We assume symmetry until we discover that it is not.
+        # First reach the nks for this corresponding hops.
+        print "Starting phase 3 : finding the topology of the discovered diamonds"
+        execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
     remove_self_loops(g)
     clean_stars(g)
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
@@ -373,7 +386,9 @@ def main(argv):
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
 
-
+    g_probe_sent = g.new_graph_property("int")
+    g_probe_sent[g] = total_probe_sent
+    g.graph_properties["probe_sent"] = g_probe_sent
 
     if output_file == "":
         graph_topology_draw_with_inferred(g)

@@ -359,21 +359,26 @@ def has_discovered_edge(g, ip, ttl, flow_id):
 
 def clean_stars(g):
     ip_address = g.vertex_properties["ip_address"]
-    display = g.new_vertex_property("bool", True)
-    g.vertex_properties["display"] = display
+    stars_to_remove = {}
     for ttl in range(1, max_ttl+1):
         vertices = find_vertex_by_ttl(g, ttl)
         has_only_star = True
         filter = []
+        stars_to_remove[ttl] = []
         for v in vertices:
             if not ip_address[v].startswith("* * *"):
-                has_only_star = False
+                stars_to_remove[ttl][:] = []
+                break
             else:
-                filter.append(v)
+                stars_to_remove[ttl].append(v)
         # Do not display these stars
-        if not has_only_star:
-            for v in filter:
-                display[v] = False
+    s_to_remove = []
+    for ttl, to_remove in stars_to_remove.iteritems():
+        for s in to_remove:
+            if s not in s_to_remove:
+                s_to_remove.append(s)
+    for s in reversed(sorted(s_to_remove)):
+        g.remove_vertex(s)
 
 def enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port):
     flow["src_ip"] = source_ip
