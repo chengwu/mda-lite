@@ -236,31 +236,39 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
 
     # Fourth round, try to infer the missing links by generating new flows
     # This number is parametrable
+
+    # If three consecutive rounds where we do not discover more edges, we stop
+    consecutive_round_without_new_information = 0
     links_probes_sent = 0
-    has_to_apply_common_successors_heuristics = True
     responding = True
+    # Optimization to tell keep in memory if a ttl has reached its statistical guarantees.
+    ttl_finished = []
+
     while total_probe_sent < total_budget \
             and links_probes_sent < limit_link_probes\
-            and has_to_apply_common_successors_heuristics\
             and responding:
-        has_to_apply_common_successors_heuristics = False
         responding = False
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+                # First hop of the diamond does not have to be reconnected
+                if ttl in ttl_finished:
+                    continue
                 if ttl == min(lb.get_ttl_vertices_number().keys()):
                     continue
                 # Check if this TTL is a divergence point or a convergence point
+                probes_sent_to_current_ttl = find_probes_sent(g, ttl)
                 if is_a_divergent_ttl(g, ttl):
                     has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
                 else:
                     has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+                probes_needed_to_reach_guarantees = max_probes_needed_ttl(g, lb, ttl, nks)
+                if probes_needed_to_reach_guarantees <= probes_sent_to_current_ttl or not has_to_probe_more:
+                    ttl_finished.append(ttl)
+                    has_to_probe_more = False
                 if has_to_probe_more:
-                    has_to_apply_common_successors_heuristics = True
-                    has_discovered_new_link = True
                     # Generate probes new flow_ids
-                    while has_discovered_new_link and links_probes_sent < limit_link_probes:
-                        has_discovered_new_link = False
+                    if links_probes_sent < limit_link_probes:
                         # Privilegiate flows that are already at ttl - 1
                         check_links_probes = []
                         overflows = find_missing_flows(g, ttl-1, ttl)
@@ -283,7 +291,6 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                             flow_id = extract_flow_id_reply(reply)
                             probe_ttl = extract_ttl(probe)
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
-                                has_discovered_new_link = True
                                 discovered = discovered + 1
                             # Update the graph
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
@@ -302,11 +309,10 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                             probe_ttl = extract_ttl(probe)
                             # Update the graph
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
-                                has_discovered_new_link = True
                                 discovered = discovered + 1
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent += len(check_missing_flow_probes)
-                        #dump_flows(g)
+                        dump_flows(g)
 
     # Apply final heuristics based on symmetry to infer links
     if with_inference:
@@ -326,8 +332,8 @@ def main(argv):
     # default values
     source_name = ""
     protocol = "udp"
-    total_budget = 20000
-    limit_edges = 8000
+    total_budget = 200000
+    limit_edges = 80000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
