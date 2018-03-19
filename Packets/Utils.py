@@ -24,6 +24,9 @@ def build_transport_probe(flow_id):
 def build_raw_probe(data):
     return Raw(load = data)
 
+def build_alias_probe(destination):
+    return IP(dst = destination)/ICMP()
+
 # 1 protocol for prototyping, UDP
 # Must write vertex_confidence
 def get_phase_1_probe(destination, ttl, vertex_confidence):
@@ -43,3 +46,6 @@ def extract_flow_id_probe(probe):
 
 def extract_ttl(p):
     return p[IP].ttl
+
+def extract_ip_id(reply):
+    return reply[IP].id

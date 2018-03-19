@@ -26,6 +26,12 @@ def init_graph():
         ttls_flow_ids[source][0].append(i)
     return g
 
+def has_common_neighbor(v1, v2):
+    for pred1 in v1.in_neighbors():
+        for pred2 in v2.in_neighbors():
+            if pred1 == pred2:
+                return True
+    return False
 def find_vertex_by_ip(g, ip):
     ip_address = g.vertex_properties["ip_address"]
     for v in g.vertices():

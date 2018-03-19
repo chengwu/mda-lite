@@ -11,6 +11,7 @@ from Graph.Operations import *
 from Graph.Visualization import *
 from Graph.Statistics import *
 from Graph.Probabilities import  *
+from Alias.Resolution import *
 
 # Link batches
 batch_link_probe_size = 30
@@ -22,6 +23,10 @@ default_stop_on_consecutive_stars = 3
 max_acceptable_asymmetry = 400
 
 default_timeout = 0.5
+
+default_icmp_timeout = 1
+
+default_alias_icmp_probe_number = 5
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -95,7 +100,7 @@ def reconnect_all_pred_flows_ttl(g, destination, ttl):
 def reconnect_all_flows(g, destination, llb):
     # Third round, try to infer the missing links if necessary from the flows we already have
     for lb in llb:
-        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
             if ttl == min(lb.get_ttl_vertices_number().keys()):
                 continue
             # Check if this TTL is a divergence point or a convergence point
@@ -185,13 +190,19 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
         reconnect_predecessors(g, destination, ttl)
         max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
 
+def get_ttls_in_lb(llb):
+    ttls_with_lb = []
+    for lb in llb:
+        for ttl in lb.get_ttl_vertices_number():
+            ttls_with_lb.append(ttl)
+    return ttls_with_lb
 
 def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     #llb : List of load balancer lb
     for lb in llb:
         # nint is the number of already discovered interfaces
-        for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
             probe_until_nk(g, destination, ttl, find_probes_sent(g, ttl), nint+1, nks)
             # Check if this is a divergent ttl and if we found cross edges
             is_divergent_ttl = is_a_divergent_ttl(g, ttl)
@@ -228,8 +239,10 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     elif ttl == max(lb.get_ttl_vertices_number().keys()):
                         apply_converging_heuristic(g, ttl, forward=True, backward=False)
 
+
     # Second step has been done previously by reconnecting two flows by divergent/convergent hop
     # to discover if a topology is asymmetric
+
 
     # Third step, try to infer the missing links if necessary from the flows we already have
     #reconnect_all_flows(g, destination, llb)
@@ -246,24 +259,27 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
 
     while total_probe_sent < total_budget \
             and links_probes_sent < limit_link_probes\
-            and responding:
+            and responding\
+            and len(ttl_finished) < len(get_ttls_in_lb(llb)):
         responding = False
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
-            for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
                 # First hop of the diamond does not have to be reconnected
                 if ttl in ttl_finished:
                     continue
                 if ttl == min(lb.get_ttl_vertices_number().keys()):
+                    ttl_finished.append(ttl)
                     continue
                 # Check if this TTL is a divergence point or a convergence point
                 probes_sent_to_current_ttl = find_probes_sent(g, ttl)
                 if is_a_divergent_ttl(g, ttl):
-                    has_to_probe_more = apply_multiple_predecessors_heuristic(g, ttl)
+                    has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
                 else:
-                    has_to_probe_more = apply_multiple_successors_heuristic(g, ttl - 1)
+                    has_cross_edges = apply_multiple_successors_heuristic(g, ttl - 1)
                 probes_needed_to_reach_guarantees = max_probes_needed_ttl(g, lb, ttl, nks)
-                if probes_needed_to_reach_guarantees <= probes_sent_to_current_ttl or not has_to_probe_more:
+                has_to_probe_more = has_cross_edges
+                if probes_needed_to_reach_guarantees <= probes_sent_to_current_ttl or not has_cross_edges:
                     ttl_finished.append(ttl)
                     has_to_probe_more = False
                 if has_to_probe_more:
@@ -312,17 +328,88 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                                 discovered = discovered + 1
                             g = update_graph(g, src_ip, probe_ttl, flow_id)
                         links_probes_sent += len(check_missing_flow_probes)
-                        dump_flows(g)
+                        #dump_flows(g)
+
+    # Final reconnection in case we have weird stuff
+    for lb in llb:
+        # Filter the ttls where there are multiple predecessors
+        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
+            reconnect_predecessors(g, destination, ttl)
+            reconnect_successors(g, destination, ttl)
 
     # Apply final heuristics based on symmetry to infer links
     if with_inference:
         remove_parallel_edges(g)
         for lb in llb:
             # Filter the ttls where there are multiple predecessors
-            for ttl, nint in lb.get_ttl_vertices_number().iteritems():
+            for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
                 apply_symmetry_heuristic(g, ttl, 2)
     remove_parallel_edges(g)
 
+
+def resolve_aliases(destination, llb, g):
+    aliases = []
+    ip_address = g.vertex_properties["ip_address"]
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    for lb in llb:
+        # Filter the ttls where there are multiple predecessors
+        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
+            alias_candidates = find_alias_candidates(g, ttl)
+            for v1, v2 in alias_candidates:
+
+                #icmp_v1 = build_alias_probe(ip_address[v1])
+                #icmp_v2 = build_alias_probe(ip_address[v2])
+                ip_ids = []
+                for i in range(0, default_alias_icmp_probe_number):
+                    flow_id1 = ttls_flow_ids[v1][ttl][0]
+                    flow_id2 = ttls_flow_ids[v2][ttl][0]
+                    alias_udp_probe1 = build_probe(destination, ttl, flow_id1)
+                    alias_udp_probe2 = build_probe(destination, ttl, flow_id2)
+                    r1 = sr1(alias_udp_probe1, timeout = default_timeout, verbose = False)
+                    r2 = sr1(alias_udp_probe2, timeout = default_timeout, verbose = False)
+
+                    if r1 is not None and r2 is not None:
+                        ip_ids.append(extract_ip_id(r1))
+                        ip_ids.append(extract_ip_id(r2))
+                if len(ip_ids) > 0:
+                    is_alias = True
+                    for i in range(2, len(ip_ids)):
+                        if ip_ids[i - 1] < ip_ids[i]:
+                            continue
+                        else:
+                            # Figure out if the counter has been resetted
+                            if ip_ids[i - 1] + (ip_ids[i - 1] - ip_ids[i - 2]) >= 2 ** 16:
+                                # Means that it could have been resetted
+                                for j in range(i, len(ip_ids)):
+                                    ip_ids[j] += 2 ** 16
+                            else:
+                                is_alias = False
+                    if is_alias:
+                        aliases.append((min(v1, v2), max(v1,v2)))
+    return aliases
+
+def merge_vertices(g, v1, v2):
+    interfaces = g.new_vertex_property("vector<string>", [])
+    g.vertex_properties["interfaces"] = interfaces
+    ip_address = g.vertex_properties["ip_address"]
+
+    interfaces[v1].append(ip_address[v1])
+    interfaces[v1].append(ip_address[v2])
+    for succ in v2.out_neighbors():
+        g.add_edge(v1, succ)
+
+    for pred in v2.in_neighbors():
+        g.add_edge(pred, v1)
+
+
+def router_graph(aliases, g):
+    vertices_to_be_removed = set()
+    for v1, v2 in aliases:
+        merge_vertices(g, v1, v2)
+        vertices_to_be_removed.add(v2)
+    for v in reversed(sorted(vertices_to_be_removed)):
+        g.remove_vertex(v)
+    return g
 def check_if_option(s, l, opts):
     for opt, arg in opts:
         if opt in (s, l):
@@ -333,11 +420,13 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 80000
+    limit_edges = 20000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
     save_flows_infos = False
+
+    with_alias_resolution = True
     try:
         opts, args = getopt.getopt(argv, "ho:c:b:isS:", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference", "save-edge-flows", "source="])
     except getopt.GetoptError:
@@ -369,6 +458,7 @@ def main(argv):
     destination  = args[0]
 
     g = init_graph()
+    r_g = None
     # 3 phases in the algorithm :
     # 1-2) hop by hop 6 probes to discover length + position of LB
     # 3) Load balancer discovery
@@ -385,8 +475,20 @@ def main(argv):
         # First reach the nks for this corresponding hops.
         print "Starting phase 3 : finding the topology of the discovered diamonds"
         execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
+        if with_alias_resolution:
+            print "Starting phase 4 : proceeding to alias resolution"
+            # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
+            aliases = resolve_aliases(destination, llb, g)
+            copy_g = Graph(g)
+            r_g = router_graph(aliases, copy_g)
+
+
     remove_self_loops(g)
-    clean_stars(g)
+    if with_alias_resolution:
+        remove_self_loops(r_g)
+    graph_topology_draw(g)
+    graph_topology_draw(r_g)
+    #clean_stars(g)
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
@@ -396,14 +498,20 @@ def main(argv):
     g_probe_sent[g] = total_probe_sent
     g.graph_properties["probe_sent"] = g_probe_sent
 
+
+
     if output_file == "":
-        graph_topology_draw_with_inferred(g)
+        graph_topology_draw(g)
+        if with_alias_resolution:
+            graph_topology_draw(r_g)
     else:
         if save_flows_infos:
             # Get source info
             source_ip = source_name
             enrich_flows(g, source_ip, destination, protocol, sport, dport)
         g.save(output_file)
+        if with_alias_resolution:
+            r_g.save("router_level_" + output_file)
     dump_results(g, destination)
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)

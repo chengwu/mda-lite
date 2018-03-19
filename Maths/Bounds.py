@@ -29,7 +29,70 @@ def get_nks():
     return nks95, nks99
 
 
+# Probability to discover a new interface given K total interfaces and
+# k discovered interfaces
+def probability_diagonal_transition(K, k):
+    result = float(K-k) / K
+    return result
+
+# Probability to NOT discover a new interface given K total interfaces and
+# k discovered interfaces
+def probability_horizontal_transition(K, k):
+    result = float(k) / K
+    return result
+
+
+def probability_space(K, nks):
+    probability_space_2_d =[[None] * (nks[x] + 1) for x in xrange(1, K+2)]
+
+    probability_space_2_d[1][0] = 0
+    probability_space_2_d[1][1] = 1
+
+    # Init special case k = 1
+    for i in range(1, nks[2] + 1):
+        if i != 1:
+            probability_space_2_d[1][i] = probability_space_2_d[1][i - 1] * probability_horizontal_transition(K, 1)
+
+    for k in range(2, K + 1):
+        for i in range(k, nks[k+1] + 1):
+            if k == i:
+                probability_space_2_d[k][i] = probability_space_2_d[k-1][i-1] * probability_diagonal_transition(K, k-1)
+            elif i > k and i <= nks[k]:
+                probability_space_2_d[k][i] =\
+                probability_space_2_d[k-1][i-1] * probability_diagonal_transition(K, k-1) + \
+                probability_space_2_d[k][i-1] * probability_horizontal_transition(K, k)
+            else:
+                probability_space_2_d[k][i] = \
+                    probability_space_2_d[k][i - 1] * probability_horizontal_transition(K, k)
+
+    return probability_space_2_d
+
+
+probability_space_3_d = []
+# K_max the maximum of interfaces to discover
+def fill_probability_space(nks, K_max = 128):
+    probability_space_3_d.append([])
+    probability_space_3_d.append([])
+    for K in range(2, K_max + 1):
+        probability_space_3_d.append(probability_space(K, nks))
+
+
+
+# K number of interfaces to discover
+# n number of probes sent
+def expectation_discovered(nks, K, n):
+    expectation = 0.0
+    for k in range(1, K+1):
+        if n <= nks[k]:
+            expectation += k*probability_space_3_d[K][k][n]
+    return expectation
+
+
 if __name__ == "__main__":
     print nks[32][1]
     print nks[4][1]
     print "Test"
+    fill_probability_space(get_nks()[1], 40)
+
+    print expectation_discovered(get_nks()[1], 10, 16)
+    print expectation_discovered(get_nks()[1], 6, 8)
