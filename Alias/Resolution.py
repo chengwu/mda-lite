@@ -23,37 +23,3 @@ def find_alias_candidates(g, ttl):
                 alias_candidates.append((v1, v2))
         already_added.append(v1)
     return alias_candidates
-
-
-def reduce_candidates_to_test(g, ttl, non_responsive_ip_id_ips):
-
-    alias_candidates = find_alias_candidates(g, ttl)
-
-    # Remove blacklisted non responsive routers to ip ids
-    vertices_to_remove_from_aliases = []
-    for v1, v2 in alias_candidates:
-        if v1 in non_responsive_ip_id_ips or v2 in non_responsive_ip_id_ips:
-            vertices_to_remove_from_aliases.append((v1, v2))
-
-    for v1, v2 in vertices_to_remove_from_aliases:
-        alias_candidates.remove((v1, v2))
-
-    # Apply transitivity rule :
-    # if IP1 is alias with IP2 and IP2 alias with IP3, IP1 is alias with IP3
-    reduced_alias_candidates = []
-
-    for v1, v2 in alias_candidates:
-        # Check if two pairs of alias contains the two aliases
-        # that we will be able to deduce by transitivity
-        deducable = set()
-        for rv1, rv2 in reduced_alias_candidates:
-            if rv1 == v1 or rv1 == v2:
-                deducable.add(rv1)
-            if rv2 == v1 or rv2 == v2:
-                deducable.add(rv2)
-            if len(deducable) == 2:
-                break
-        if len(deducable) != 2 :
-            reduced_alias_candidates.append((v1,v2))
-
-    return reduced_alias_candidates

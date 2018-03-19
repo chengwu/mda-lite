@@ -356,7 +356,16 @@ def resolve_aliases(destination, llb, g):
         for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
             alias_candidates = find_alias_candidates(g, ttl)
             for v1, v2 in alias_candidates:
-
+                # Deduce by transitivity with already found aliases
+                deducable = set()
+                for alias1, alias2 in aliases:
+                    if alias1 == v1 or alias1 == v2:
+                        deducable.add(alias1)
+                    if alias2 == v1 or alias2 == v2:
+                        deducable.add(alias2)
+                if len(deducable) == 2:
+                    aliases.append((min(v1, v2), max(v1, v2)))
+                    continue
                 #icmp_v1 = build_alias_probe(ip_address[v1])
                 #icmp_v2 = build_alias_probe(ip_address[v2])
                 ip_ids = []
