@@ -19,9 +19,7 @@ def max_probes_needed_ttl(g, lb, hop, nks):
             probabilities_succ_pred = {}
             probabilities_to_reach[v] = 0
             for pred in predecessors:
-
                 probabilities_succ_pred[pred] = len(find_successors_ttl(g, pred, ttl-1))
-                #graph_topology_draw(g)
                 probabilities_to_reach[v] += probabilities_to_reach[pred] * 1.0/probabilities_succ_pred[pred]
 
     vertices_hop = find_vertex_by_ttl(g, hop-1)

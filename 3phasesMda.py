@@ -389,8 +389,7 @@ def resolve_aliases(destination, llb, g):
     return aliases
 
 def merge_vertices(g, v1, v2):
-    interfaces = g.new_vertex_property("vector<string>", [])
-    g.vertex_properties["interfaces"] = interfaces
+    interfaces = g.vertex_properties["interfaces"]
     ip_address = g.vertex_properties["ip_address"]
 
     interfaces[v1].append(ip_address[v1])
@@ -403,6 +402,8 @@ def merge_vertices(g, v1, v2):
 
 
 def router_graph(aliases, g):
+    interfaces = g.new_vertex_property("vector<string>", [])
+    g.vertex_properties["interfaces"] = interfaces
     vertices_to_be_removed = set()
     for v1, v2 in aliases:
         merge_vertices(g, v1, v2)
@@ -475,20 +476,15 @@ def main(argv):
         # First reach the nks for this corresponding hops.
         print "Starting phase 3 : finding the topology of the discovered diamonds"
         execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
+        clean_stars(g)
+        remove_self_loops(g)
         if with_alias_resolution:
             print "Starting phase 4 : proceeding to alias resolution"
             # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
             aliases = resolve_aliases(destination, llb, g)
             copy_g = Graph(g)
             r_g = router_graph(aliases, copy_g)
-
-
-    remove_self_loops(g)
-    if with_alias_resolution:
-        remove_self_loops(r_g)
-    graph_topology_draw(g)
-    graph_topology_draw(r_g)
-    #clean_stars(g)
+            remove_self_loops(r_g)
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
@@ -503,7 +499,7 @@ def main(argv):
     if output_file == "":
         graph_topology_draw(g)
         if with_alias_resolution:
-            graph_topology_draw(r_g)
+            graph_router_topology_level_draw(r_g)
     else:
         if save_flows_infos:
             # Get source info
