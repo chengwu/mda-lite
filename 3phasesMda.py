@@ -347,8 +347,9 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
     remove_parallel_edges(g)
 
 
+
 def resolve_aliases(destination, llb, g):
-    aliases = []
+    aliases = {}
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     for lb in llb:
@@ -356,31 +357,36 @@ def resolve_aliases(destination, llb, g):
         for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
             alias_candidates = find_alias_candidates(g, ttl)
             for v1, v2 in alias_candidates:
+                print ip_address[v1] +" - " + ip_address[v2]
                 # Deduce by transitivity with already found aliases
-                deducable = set()
-                for alias1, alias2 in aliases:
-                    if alias1 == v1 or alias1 == v2:
-                        deducable.add(alias1)
-                    if alias2 == v1 or alias2 == v2:
-                        deducable.add(alias2)
-                if len(deducable) == 2:
-                    aliases.append((min(v1, v2), max(v1, v2)))
+                min_alias = min(v1, v2)
+                max_alias = max(v1, v2)
+                is_alias, min_found_alias = is_deducable_alias(min_alias, max_alias, aliases)
+                if is_alias:
+                    aliases[min_found_alias].add(max_alias)
                     continue
                 #icmp_v1 = build_alias_probe(ip_address[v1])
                 #icmp_v2 = build_alias_probe(ip_address[v2])
                 ip_ids = []
                 for i in range(0, default_alias_icmp_probe_number):
-                    flow_id1 = ttls_flow_ids[v1][ttl][0]
-                    flow_id2 = ttls_flow_ids[v2][ttl][0]
+                    flow_id1 = ttls_flow_ids[min_alias][ttl][0]
+                    flow_id2 = ttls_flow_ids[max_alias][ttl][0]
                     alias_udp_probe1 = build_probe(destination, ttl, flow_id1)
                     alias_udp_probe2 = build_probe(destination, ttl, flow_id2)
+
                     r1 = sr1(alias_udp_probe1, timeout = default_timeout, verbose = False)
                     r2 = sr1(alias_udp_probe2, timeout = default_timeout, verbose = False)
 
                     if r1 is not None and r2 is not None:
-                        ip_ids.append(extract_ip_id(r1))
-                        ip_ids.append(extract_ip_id(r2))
-                if len(ip_ids) > 0:
+                        ip_reply1 = extract_src_ip(r1)
+                        ip_reply2 = extract_src_ip(r2)
+                        if ip_address[v1] == ip_reply1 and ip_address[v2] == ip_reply2:
+                            ip_ids.append(extract_ip_id(r1))
+                            ip_ids.append(extract_ip_id(r2))
+                        else:
+                            break
+                print ip_ids
+                if len(ip_ids) >= 4:
                     is_alias = True
                     for i in range(2, len(ip_ids)):
                         if ip_ids[i - 1] < ip_ids[i]:
@@ -394,7 +400,10 @@ def resolve_aliases(destination, llb, g):
                             else:
                                 is_alias = False
                     if is_alias:
-                        aliases.append((min(v1, v2), max(v1,v2)))
+                        if not aliases.has_key(min_alias):
+                            aliases[min_alias] = set()
+                        aliases[min_alias].add(max_alias)
+                        update_alias(aliases)
     return aliases
 
 def merge_vertices(g, v1, v2):
@@ -411,12 +420,11 @@ def merge_vertices(g, v1, v2):
 
 
 def router_graph(aliases, g):
-    interfaces = g.new_vertex_property("vector<string>", [])
-    g.vertex_properties["interfaces"] = interfaces
     vertices_to_be_removed = set()
-    for v1, v2 in aliases:
-        merge_vertices(g, v1, v2)
-        vertices_to_be_removed.add(v2)
+    for v1, v1_aliases in aliases.iteritems():
+        for v1_alias in v1_aliases:
+            merge_vertices(g, v1, v1_alias)
+            vertices_to_be_removed.add(v1_alias)
     for v in reversed(sorted(vertices_to_be_removed)):
         g.remove_vertex(v)
     return g
@@ -490,9 +498,16 @@ def main(argv):
         if with_alias_resolution:
             print "Starting phase 4 : proceeding to alias resolution"
             # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
-            aliases = resolve_aliases(destination, llb, g)
             copy_g = Graph(g)
-            r_g = router_graph(aliases, copy_g)
+            interfaces = copy_g.new_vertex_property("vector<string>", [])
+            copy_g.vertex_properties["interfaces"] = interfaces
+            while True:
+                r_g = Graph(copy_g)
+                aliases = resolve_aliases(destination, llb, r_g)
+                r_g = router_graph(aliases, r_g)
+                if len(r_g.get_vertices()) == len(copy_g.get_vertices()):
+                    break
+                copy_g = r_g
             remove_self_loops(r_g)
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)

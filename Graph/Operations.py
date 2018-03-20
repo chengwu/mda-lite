@@ -376,7 +376,7 @@ def clean_stars(g):
                     break
                 else:
                     star_to_remove = v
-            if has_only_star:
+            if not has_only_star and star_to_remove is not None:
                 g.remove_vertex(star_to_remove)
 
 def enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port):
