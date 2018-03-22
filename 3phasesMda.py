@@ -261,7 +261,11 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             and responding\
             and len(ttl_finished) < len(get_ttls_in_lb(llb)):
         responding = False
+        k = 1
         for lb in llb:
+            while total_probe_sent > k * 1000:
+                k += 1
+                print "Probe sent > " + str(total_probe_sent)
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
                 # First hop of the diamond does not have to be reconnected
