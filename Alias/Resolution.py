@@ -7,11 +7,12 @@ from Packets.Utils import  *
 midar_unusable_treshold = 0.75
 midar_degenerate_treshold = 0.25
 midar_negative_delta_treshold = 0.3
-midar_discard_velocity_treshold = 2
+# Dumb value here to avoid taking velocity into account
+midar_discard_velocity_treshold = 100
 
-default_alias_timeout = 1
-default_alias_icmp_probe_number = 30
-default_number_mbt = 5
+default_alias_timeout = 0.5
+default_alias_icmp_probe_number = 20
+default_number_mbt = 10
 
 
 def find_alias_candidates(g, ttl):
@@ -104,22 +105,30 @@ def send_alias_probes(g, vertices, ttl, destination):
     # Has to check the ip_address to handle per packet LB, well, anw, it will be discarded
     # in the clean of the velocities
     for i in range(0, default_alias_icmp_probe_number):
-        #print str(i) + "round of stage, " + str(len(vertices)) + " number of vertices"
         one_round_time_before = time.time()
         for v in vertices:
             flow_id = ttls_flow_ids[v][ttl][0]
             alias_udp_probe = build_probe(destination, ttl, flow_id)
             before = time.time()
             reply = sr1(alias_udp_probe, timeout=default_alias_timeout, verbose = False)
+            after = time.time()
             if reply is None:
                 continue
-            if ip_address[v] != extract_src_ip(reply):
-                print "Flow changed during measurement!"
-                continue
-            after = time.time()
             ip_id = extract_ip_id(reply)
-            time_series_by_vertices[v].append((before, after, ip_id))
-        #print "Round takes " + (str(time.time() - one_round_time_before)) + " seconds"
+            reply_ip = extract_src_ip(reply)
+
+            if ip_address[v] != reply_ip:
+                print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
+                update_graph(g, reply_ip, ttl, flow_id)
+                other_v = find_vertex_by_ip(g, reply_ip)
+                if not time_series_by_vertices.has_key(other_v):
+                    time_series_by_vertices[other_v] = [[before, after, ip_id]]
+                else:
+                    time_series_by_vertices[other_v].append([before, after, ip_id])
+
+                continue
+            time_series_by_vertices[v].append([before, after, ip_id])
+        print "Round takes " + (str(time.time() - one_round_time_before)) + " seconds"
     return time_series_by_vertices
 
 def send_velocity_probes_multi_thread(g, v, ttl, destination, shared_dict):
@@ -139,7 +148,7 @@ def send_velocity_probes_multi_thread(g, v, ttl, destination, shared_dict):
             break
         after = time.time()
         ip_id = extract_ip_id(reply)
-        time_series.append((before, after, ip_id))
+        time_series.append([before, after, ip_id])
 
     # Seems to not need a lock in python as they don't access the same key
     if is_per_flow_stable:
@@ -148,11 +157,9 @@ def send_velocity_probes_multi_thread(g, v, ttl, destination, shared_dict):
         shared_dict[v] = None
 
 def compute_negative_delta(time_serie):
-    ip_ids_delta = [time_serie[i][2] - time_serie[i-1][2] for i in range(1, len(time_serie))]
-    for delta in ip_ids_delta:
-        if delta < 0:
-            delta += 2**16
-
+    for i in range(0, len(time_serie)-1):
+        while time_serie[i][2] > time_serie[i+1][2]:
+            time_serie[i+1][2] += 2**16
 def compute_velocity(time_serie):
     # Do some checking to elapse "unusable" serie
     # Check if responsive treshold
@@ -170,12 +177,15 @@ def compute_velocity(time_serie):
 
     # Check if too much negative deltas
     negative_deltas = filter(lambda x : x <= 0, ip_ids_delta)
+
     if len(negative_deltas) > midar_negative_delta_treshold * len(time_serie):
         return None
 
-    for delta in ip_ids_delta:
-        if delta < 0:
-            delta += 2**16
+    for i in range(0, len(time_serie)-1):
+        while time_serie[i][2] > time_serie[i+1][2]:
+            time_serie[i+1][2] += 2**16
+
+    ip_ids_delta = [time_serie[i][2] - time_serie[i-1][2] for i in range(1, len(time_serie))]
 
     # Compute velocity
     return float(sum(ip_ids_delta))/sum(time_deltas)
@@ -187,7 +197,7 @@ def filter_candidates_by_velocity(velocities):
             max_velocity = max(velocities[i][1], velocities[j][1])
             min_velocity = min(velocities[i][1], velocities[j][1])
 
-            if (max_velocity/min_velocity) > midar_discard_velocity_treshold:
+            if (float(max_velocity)/min_velocity) > midar_discard_velocity_treshold:
                 continue
             else:
                 candidates.append((velocities[i][0], velocities[j][0]))
@@ -279,8 +289,10 @@ def estimation_stage(g, vertices_by_ttl, ttl, destination):
         velocity = compute_velocity(time_serie)
         if velocity is not None:
             velocities.append((v, velocity))
-            # Filter those which have too much different velocity
+    # Filter those which have too much different velocity
+    # TODO This should be an option as it is an optimization
     alias_candidates = filter_candidates_by_velocity(velocities)
+
 
     elimination_stage_candidates = {}
     for v1, v2 in alias_candidates:
@@ -304,7 +316,7 @@ def estimation_stage(g, vertices_by_ttl, ttl, destination):
 
 def elimination_stage(g, elimination_stage_candidates, ttl, destination):
     ip_address = g.vertex_properties["ip_address"]
-    elimination_to_remove = []
+    elimination_to_remove = set()
     for elimination_candidate, set_candidates in elimination_stage_candidates.iteritems():
         candidates = list(set_candidates)
         candidates.sort()
@@ -312,6 +324,12 @@ def elimination_stage(g, elimination_stage_candidates, ttl, destination):
         time_series_by_candidate = send_alias_probes(g, candidates, ttl, destination)
         for v, time_serie in time_series_by_candidate.iteritems():
             compute_negative_delta(time_serie)
+            # For debug
+            ip_ids = [x[2] for x in time_serie]
+            sorted_ip_ids = sorted(ip_ids)
+            for i in range(0, len(ip_ids)):
+                if sorted_ip_ids[i] != ip_ids[i]:
+                    print "Error of sorting during negative deltas"
         for k in range(0, default_number_mbt):
             for i in range(0, len(candidates)):
                 time_serie1 = time_series_by_candidate[candidates[i]]
@@ -323,13 +341,18 @@ def elimination_stage(g, elimination_stage_candidates, ttl, destination):
                     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
                     if not pass_mbt:
                         print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
+                        if k > 5:
+                            print time_serie1
+                            print time_serie2
                         min_candidate = min(candidates[i], candidates[j])
                         max_candidate = max(candidates[i], candidates[j])
-                        elimination_to_remove.append((min_candidate, max_candidate))
+                        elimination_to_remove.add((min_candidate, max_candidate))
 
     for candidate1, candidate2 in elimination_to_remove:
-        elimination_stage_candidates[candidate1].discard(candidate2)
-
+        if elimination_stage_candidates.has_key(candidate1):
+            elimination_stage_candidates[candidate1].discard(candidate2)
+        elif elimination_stage_candidates.has_key(candidate2):
+            elimination_stage_candidates[candidate2].discard(candidate1)
     for elimination_candidate, candidates in elimination_stage_candidates.iteritems():
         candidates.discard(elimination_candidate)
         for candidate in candidates :
@@ -337,3 +360,14 @@ def elimination_stage(g, elimination_stage_candidates, ttl, destination):
                 print ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!"
 
     return elimination_stage_candidates
+
+
+def router_graph(aliases, g):
+    vertices_to_be_removed = set()
+    for v1, v1_aliases in aliases.iteritems():
+        for v1_alias in v1_aliases:
+            merge_vertices(g, v1, v1_alias)
+            vertices_to_be_removed.add(v1_alias)
+    for v in reversed(sorted(vertices_to_be_removed)):
+        g.remove_vertex(v)
+    return g

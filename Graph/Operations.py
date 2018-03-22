@@ -50,10 +50,13 @@ def find_vertex_by_ttl(g, ttl):
 
 def find_vertex_by_ttl_flow_id(g, ttl, flow_id):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    v_ttl_flow_id = []
     for v in g.vertices():
         for hop, flow_ids in ttls_flow_ids[v].iteritems():
             if hop == ttl and flow_id in flow_ids:
-                return v
+                v_ttl_flow_id.append(v)
+    if len(v_ttl_flow_id) > 0:
+        return v_ttl_flow_id
     return None
 
 
@@ -140,23 +143,25 @@ def update_neigbours(g, v, ttl, flow_id):
     else:
         ttls_flow_ids[v][ttl] = [flow_id]
     # Add the corresponding edges if there are to be added
-    successor = find_vertex_by_ttl_flow_id(g, ttl+1, flow_id)
-    if successor is not None:
-        # Multiple edges are not possible here
-        e = g.edge(v, successor)
-        if e is None:
-            e = g.add_edge(v, successor)
-            tag_edge_flow(g, e, ttl, ttl+1, flow_id, True)
-        else:
-            tag_edge_flow(g, e, ttl, ttl+1, flow_id, False)
-    predecessor = find_vertex_by_ttl_flow_id(g, ttl-1, flow_id)
-    if predecessor is not None:
-        e = g.edge(predecessor, v)
-        if e is None:
-            e = g.add_edge(predecessor, v)
-            tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
-        else:
-            tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
+    successors = find_vertex_by_ttl_flow_id(g, ttl+1, flow_id)
+    if successors is not None:
+        for successor in successors:
+            # Multiple edges are not possible here
+            e = g.edge(v, successor)
+            if e is None:
+                e = g.add_edge(v, successor)
+                tag_edge_flow(g, e, ttl, ttl+1, flow_id, True)
+            else:
+                tag_edge_flow(g, e, ttl, ttl+1, flow_id, False)
+    predecessors = find_vertex_by_ttl_flow_id(g, ttl-1, flow_id)
+    if predecessors is not None:
+        for predecessor in predecessors:
+            e = g.edge(predecessor, v)
+            if e is None:
+                e = g.add_edge(predecessor, v)
+                tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
+            else:
+                tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
 def init_vertex(g, v, ip, ttl, flow_id):
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
@@ -203,7 +208,7 @@ def dict_vertices_by_ttl_without_useless_stars(g):
     ip_address    = g.vertex_properties["ip_address"]
     vertices_by_ttl = dict_vertices_by_ttl(g)
     for ttl, vertices in vertices_by_ttl.iteritems():
-        wstar_vertices = filter(lambda v : not ip_address[v].startswith("* * *"), vertices)
+        wstar_vertices = filter(lambda v : not ip_address[v].startswith("*"), vertices)
         if len(wstar_vertices) != 0:
             vertices_by_ttl[ttl] = wstar_vertices
     return vertices_by_ttl
@@ -362,6 +367,18 @@ def has_discovered_edge(g, ip, ttl, flow_id):
                 if v not in p.out_neighbors():
                     return True
     return False
+
+def merge_vertices(g, v1, v2):
+    interfaces = g.vertex_properties["interfaces"]
+    ip_address = g.vertex_properties["ip_address"]
+
+    interfaces[v1].append(ip_address[v1])
+    interfaces[v1].append(ip_address[v2])
+    for succ in v2.out_neighbors():
+        g.add_edge(v1, succ)
+
+    for pred in v2.in_neighbors():
+        g.add_edge(pred, v1)
 
 def clean_stars(g):
     ip_address = g.vertex_properties["ip_address"]
