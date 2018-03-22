@@ -208,7 +208,7 @@ def dict_vertices_by_ttl_without_useless_stars(g):
     ip_address    = g.vertex_properties["ip_address"]
     vertices_by_ttl = dict_vertices_by_ttl(g)
     for ttl, vertices in vertices_by_ttl.iteritems():
-        wstar_vertices = filter(lambda v : not ip_address[v].startswith("*"), vertices)
+        wstar_vertices = list(filter(lambda v : not ip_address[v].startswith("*"), vertices))
         if len(wstar_vertices) != 0:
             vertices_by_ttl[ttl] = wstar_vertices
     return vertices_by_ttl
@@ -236,7 +236,7 @@ def find_consecutive_ttls(ttls_vertices):
 
 def extract_load_balancers(g):
     vertices_by_ttl = dict_vertices_by_ttl_without_useless_stars(g)
-    ttls = filter(lambda (ttl, vertices): len(vertices) > 1, vertices_by_ttl.iteritems())
+    ttls = list(filter(lambda (ttl, vertices): len(vertices) > 1, vertices_by_ttl.iteritems()))
     load_balancers = []
     consecutive_ttls = find_consecutive_ttls(ttls)
     for l in consecutive_ttls:

@@ -128,8 +128,9 @@ def send_alias_probes(g, vertices, ttl, destination):
 
                 continue
             time_series_by_vertices[v].append([before, after, ip_id])
-        if i == 0:
-            print "First round took " + (str(time.time() - one_round_time_before)) + " seconds"
+        if i %10 == 0:
+            print str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
+                  + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining"
     return time_series_by_vertices
 
 def send_velocity_probes_multi_thread(g, v, ttl, destination, shared_dict):
@@ -177,7 +178,7 @@ def compute_velocity(time_serie):
     time_deltas = [time_serie[i][1] - time_serie[i-1][1] for i in range(1, len(time_serie))]
 
     # Check if too much negative deltas
-    negative_deltas = filter(lambda x : x <= 0, ip_ids_delta)
+    negative_deltas = list(filter(lambda x : x <= 0, ip_ids_delta))
 
     if len(negative_deltas) > midar_negative_delta_treshold * len(time_serie):
         return None
