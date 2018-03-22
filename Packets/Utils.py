@@ -4,7 +4,7 @@ from Maths.Bounds import *
 # Hardcoded sport
 sport  = 24000
 # Hardcoded dport
-dport  = 33456
+dport  = 33435
 # Hardcoded max_ttl
 
 #nk to ensure 5% failure probability
@@ -39,10 +39,10 @@ def extract_src_ip(p):
     return p[IP].src
 
 def extract_flow_id_reply(reply):
-    return reply[ICMP].sport - 24000
+    return reply[ICMP].sport - sport
 
 def extract_flow_id_probe(probe):
-    return probe[UDP].sport-24000
+    return probe[UDP].sport - sport
 
 def extract_ttl(p):
     return p[IP].ttl

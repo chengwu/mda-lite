@@ -2,6 +2,8 @@
 
 from scapy import config
 import sys, getopt
+import time
+import threading
 config.Conf.load_layers.remove("x509")
 import shlex
 from scapy.all import *
@@ -14,19 +16,16 @@ from Graph.Probabilities import  *
 from Alias.Resolution import *
 
 # Link batches
-batch_link_probe_size = 30
+max_batch_link_probe_size = 50
 
 total_probe_sent = 0
 
 default_stop_on_consecutive_stars = 3
 
 max_acceptable_asymmetry = 400
-
-default_timeout = 0.5
-
-default_icmp_timeout = 1
-
-default_alias_icmp_probe_number = 5
+# Check if too much negative deltas
+default_timeout = 3
+default_icmp_rate_limit = 50
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -283,6 +282,11 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     ttl_finished.append(ttl)
                     has_to_probe_more = False
                 if has_to_probe_more:
+                    # Adapt the batch depending on how much probe we can send without reaching ICMP Rate limit
+                    vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+                    batch_link_probe_size = len(vertices_by_ttl) * (default_icmp_rate_limit - 10)
+                    if batch_link_probe_size > max_batch_link_probe_size :
+                        batch_link_probe_size = max_batch_link_probe_size
                     # Generate probes new flow_ids
                     if links_probes_sent < limit_link_probes:
                         # Privilegiate flows that are already at ttl - 1
@@ -348,62 +352,86 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
 
 
 
+
+
+
 def resolve_aliases(destination, llb, g):
     aliases = {}
-    ip_address = g.vertex_properties["ip_address"]
+
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     for lb in llb:
         # Filter the ttls where there are multiple predecessors
         for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
-            alias_candidates = find_alias_candidates(g, ttl)
-            for v1, v2 in alias_candidates:
-                print ip_address[v1] +" - " + ip_address[v2]
+            # This commented line uses "common neighbor" heuristic to reduce the number of pairs
+            # alias_candidates = find_alias_candidates(g, ttl)
+            vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+
+            ###################### Use MIDAR alias resolution technique #####################
+            # Get time series velocity
+
+            # Apply MBT to the candidates
+            # Estimation stage
+            elimination_stage_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
+
+            #######################
+            # Elimination stage
+            corroboration_stage_candidates = elimination_stage(g, elimination_stage_candidates, ttl, destination)
+
+
+            # Do not do the corroboratino stage as the subgraphs are already small in elimination stage
+            aliases.update(corroboration_stage_candidates)
                 # Deduce by transitivity with already found aliases
-                min_alias = min(v1, v2)
-                max_alias = max(v1, v2)
-                is_alias, min_found_alias = is_deducable_alias(min_alias, max_alias, aliases)
-                if is_alias:
-                    aliases[min_found_alias].add(max_alias)
-                    continue
-                #icmp_v1 = build_alias_probe(ip_address[v1])
-                #icmp_v2 = build_alias_probe(ip_address[v2])
-                ip_ids = []
-                for i in range(0, default_alias_icmp_probe_number):
-                    flow_id1 = ttls_flow_ids[min_alias][ttl][0]
-                    flow_id2 = ttls_flow_ids[max_alias][ttl][0]
-                    alias_udp_probe1 = build_probe(destination, ttl, flow_id1)
-                    alias_udp_probe2 = build_probe(destination, ttl, flow_id2)
-
-                    r1 = sr1(alias_udp_probe1, timeout = default_timeout, verbose = False)
-                    r2 = sr1(alias_udp_probe2, timeout = default_timeout, verbose = False)
-
-                    if r1 is not None and r2 is not None:
-                        ip_reply1 = extract_src_ip(r1)
-                        ip_reply2 = extract_src_ip(r2)
-                        if ip_address[v1] == ip_reply1 and ip_address[v2] == ip_reply2:
-                            ip_ids.append(extract_ip_id(r1))
-                            ip_ids.append(extract_ip_id(r2))
-                        else:
-                            break
-                print ip_ids
-                if len(ip_ids) >= 4:
-                    is_alias = True
-                    for i in range(2, len(ip_ids)):
-                        if ip_ids[i - 1] < ip_ids[i]:
-                            continue
-                        else:
-                            # Figure out if the counter has been resetted
-                            if ip_ids[i - 1] + (ip_ids[i - 1] - ip_ids[i - 2]) >= 2 ** 16:
-                                # Means that it could have been resetted
-                                for j in range(i, len(ip_ids)):
-                                    ip_ids[j] += 2 ** 16
-                            else:
-                                is_alias = False
-                    if is_alias:
-                        if not aliases.has_key(min_alias):
-                            aliases[min_alias] = set()
-                        aliases[min_alias].add(max_alias)
-                        update_alias(aliases)
+                # min_alias = min(v1, v2)
+                # max_alias = max(v1, v2)
+                # is_alias, min_found_alias = is_deducable_alias(min_alias, max_alias, aliases)
+                # if is_alias:
+                #     aliases[min_found_alias].add(max_alias)
+                #     continue
+                # #icmp_v1 = build_alias_probe(ip_address[v1])
+                # #icmp_v2 = build_alias_probe(ip_address[v2])
+                # ip_ids = []
+                # flow_id1 = ttls_flow_ids[min_alias][ttl][0]
+                # flow_id2 = ttls_flow_ids[max_alias][ttl][0]
+                # alias_udp_probe1 = build_probe(destination, ttl, flow_id1)
+                # alias_udp_probe2 = build_probe(destination, ttl, flow_id2)
+                # for i in range(0, default_alias_icmp_probe_number):
+                #     r1 = sr1(alias_udp_probe1, timeout = default_alias_timeout, verbose = False)
+                #     r2 = sr1(alias_udp_probe2, timeout = default_alias_timeout, verbose = False)
+                #     if r1 is not None and r2 is not None:
+                #         ip_reply1 = extract_src_ip(r1)
+                #         ip_reply2 = extract_src_ip(r2)
+                #         if ip_address[v1] == ip_reply1 and ip_address[v2] == ip_reply2:
+                #             ip_ids.append(extract_ip_id(r1))
+                #             ip_ids.append(extract_ip_id(r2))
+                #         else:
+                #             print "Not a per-flow load balancer!"
+                #             break
+                # print ip_ids
+                # if len(ip_ids) >= 4:
+                #     is_alias = True
+                #     for i in range(2, len(ip_ids)):
+                #         if ip_ids[i - 1] < ip_ids[i]:
+                #             continue
+                #         else:
+                #             # Figure out if the counter has been resetted
+                #             if ip_ids[i - 1] + (ip_ids[i - 1] - ip_ids[i - 2]) >= 2 ** 16:
+                #                 # Means that it could have been resetted
+                #                 for j in range(i, len(ip_ids)):
+                #                     ip_ids[j] += 2 ** 16
+                #                 sorted_sub_ip_ids = sorted(ip_ids[i:])
+                #                 for j in range(0, len(sorted_sub_ip_ids)):
+                #                     if sorted_sub_ip_ids[j] != ip_ids[i+j]:
+                #                         is_alias = False
+                #                         break
+                #             else:
+                #                 is_alias = False
+                #                 break
+                #     if is_alias:
+                #         print "Found alias!"
+                #         if not aliases.has_key(min_alias):
+                #             aliases[min_alias] = set()
+                #         aliases[min_alias].add(max_alias)
+                #         update_alias(aliases)
     return aliases
 
 def merge_vertices(g, v1, v2):
@@ -481,9 +509,23 @@ def main(argv):
     # 1-2) hop by hop 6 probes to discover length + position of LB
     # 3) Load balancer discovery
 
-    print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds"
+    print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds..."
     # Phase 1
     has_exited_on_consecutive_stars = execute_phase1(g, destination, vertex_confidence)
+
+    if has_exited_on_consecutive_stars and with_alias_resolution:
+        llb = extract_load_balancers(g)
+        clean_stars(g)
+        remove_self_loops(g)
+        print "Starting phase 4 : proceeding to alias resolution"
+        # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
+        copy_g = Graph(g)
+        interfaces = copy_g.new_vertex_property("vector<string>", [])
+        copy_g.vertex_properties["interfaces"] = interfaces
+        r_g = Graph(copy_g)
+        aliases = resolve_aliases(destination, llb, r_g)
+        r_g = router_graph(aliases, r_g)
+        remove_self_loops(r_g)
     #graph_topology_draw(g)
     if not has_exited_on_consecutive_stars:
         #Phase 2
@@ -501,13 +543,10 @@ def main(argv):
             copy_g = Graph(g)
             interfaces = copy_g.new_vertex_property("vector<string>", [])
             copy_g.vertex_properties["interfaces"] = interfaces
-            while True:
-                r_g = Graph(copy_g)
-                aliases = resolve_aliases(destination, llb, r_g)
-                r_g = router_graph(aliases, r_g)
-                if len(r_g.get_vertices()) == len(copy_g.get_vertices()):
-                    break
-                copy_g = r_g
+            r_g = Graph(copy_g)
+            aliases = resolve_aliases(destination, llb, r_g)
+            r_g = router_graph(aliases, r_g)
+            copy_g = r_g
             remove_self_loops(r_g)
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)
@@ -536,5 +575,5 @@ def main(argv):
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":
-    config.conf.L3socket = L3RawSocket
+    config.conf.L3socket = L3dnetSocket
     main(sys.argv[1:])
