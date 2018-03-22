@@ -118,7 +118,7 @@ def send_alias_probes(g, vertices, ttl, destination):
             reply_ip = extract_src_ip(reply)
 
             if ip_address[v] != reply_ip:
-                print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
+                #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
                 update_graph(g, reply_ip, ttl, flow_id)
                 other_v = find_vertex_by_ip(g, reply_ip)
                 if not time_series_by_vertices.has_key(other_v):
@@ -128,7 +128,8 @@ def send_alias_probes(g, vertices, ttl, destination):
 
                 continue
             time_series_by_vertices[v].append([before, after, ip_id])
-        print "Round takes " + (str(time.time() - one_round_time_before)) + " seconds"
+        if i == 0:
+            print "First round took " + (str(time.time() - one_round_time_before)) + " seconds"
     return time_series_by_vertices
 
 def send_velocity_probes_multi_thread(g, v, ttl, destination, shared_dict):
@@ -296,7 +297,7 @@ def estimation_stage(g, vertices_by_ttl, ttl, destination):
 
     elimination_stage_candidates = {}
     for v1, v2 in alias_candidates:
-        print "Estimation stage : Applying MBT to candidates " + ip_address[v1] + " and " + ip_address[v2]
+        # print "Estimation stage : Applying MBT to candidates " + ip_address[v1] + " and " + ip_address[v2]
         time_serie1 = time_serie_by_v[v1]
         time_serie2 = time_serie_by_v[v2]
         has_monotonicity_requirement = monotonic_bound_test(time_serie1, time_serie2)
@@ -335,9 +336,9 @@ def elimination_stage(g, elimination_stage_candidates, ttl, destination):
                 time_serie1 = time_series_by_candidate[candidates[i]]
                 for j in range(i + 1, len(candidates)):
                     time_serie2 = time_series_by_candidate[candidates[j]]
-                    print "Elimination stage : Applying MBT to candidates "\
-                          + ip_address[candidates[i]] + \
-                          " and " + ip_address[candidates[j]]
+                    # print "Elimination stage : Applying MBT to candidates "\
+                    #       + ip_address[candidates[i]] + \
+                    #       " and " + ip_address[candidates[j]]
                     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
                     if not pass_mbt:
                         print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"

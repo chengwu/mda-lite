@@ -455,7 +455,6 @@ def main(argv):
     execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
     clean_stars(g)
     reconnect_stars(g)
-    graph_topology_draw(g)
     remove_self_loops(g)
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
