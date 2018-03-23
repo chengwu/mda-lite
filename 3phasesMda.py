@@ -27,6 +27,7 @@ max_acceptable_asymmetry = 400
 default_timeout = 3
 default_icmp_rate_limit = 50
 
+max_ttl = 12
 def increment_probe_sent(n):
     global total_probe_sent
     total_probe_sent = total_probe_sent + n
@@ -117,7 +118,8 @@ def execute_phase1(g, destination, vertex_confidence):
     has_found_longest_path_to_destination = False
     consecutive_only_star = 0
     ttl = 1
-    while not has_found_longest_path_to_destination:
+
+    while not has_found_longest_path_to_destination and ttl < max_ttl:
         if consecutive_only_star == default_stop_on_consecutive_stars:
             print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm."
             return True
@@ -261,11 +263,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             and responding\
             and len(ttl_finished) < len(get_ttls_in_lb(llb)):
         responding = False
-        k = 1
         for lb in llb:
-            while total_probe_sent > k * 1000:
-                k += 1
-                print "Probe sent > " + str(total_probe_sent)
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
                 # First hop of the diamond does not have to be reconnected
@@ -368,9 +366,9 @@ def resolve_aliases(destination, llb, g):
 
             ###################### Use MIDAR alias resolution technique #####################
             # Estimation stage
-            elimination_stage_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
+            elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
             # Elimination stage
-            corroboration_stage_candidates = elimination_stage(g, elimination_stage_candidates, ttl, destination)
+            corroboration_stage_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates, ttl, destination)
             # Do not do the corroboratino stage as the subgraphs are already small in elimination stage
             aliases.update(corroboration_stage_candidates)
             ####################### End of MIDAR #########################
@@ -395,13 +393,12 @@ def check_if_option(s, l, opts):
             return True
     return False
 def main(argv):
-
     origin = time.time()
     # default values
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 20000
+    limit_edges = 0
     vertex_confidence = 99
     output_file = ""
     with_inference = False
@@ -438,6 +435,7 @@ def main(argv):
         sys.exit(2)
     destination  = args[0]
 
+
     g = init_graph()
     r_g = None
     # 3 phases in the algorithm :
@@ -457,6 +455,8 @@ def main(argv):
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
     execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
+    # g = load_graph("test.xml")
+    # llb = extract_load_balancers(g)
     clean_stars(g)
     reconnect_stars(g)
     remove_self_loops(g)
@@ -467,7 +467,9 @@ def main(argv):
         interfaces = copy_g.new_vertex_property("vector<string>", [])
         copy_g.vertex_properties["interfaces"] = interfaces
         r_g = Graph(copy_g)
+        before_alias = time.time()
         aliases = resolve_aliases(destination, llb, r_g)
+        print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
         r_g = router_graph(aliases, r_g)
         remove_self_loops(r_g)
 
