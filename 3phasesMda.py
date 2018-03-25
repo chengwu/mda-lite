@@ -16,7 +16,10 @@ from Graph.Probabilities import  *
 from Alias.Resolution import *
 
 # Link batches
-max_batch_link_probe_size = 50
+max_batch_link_probe_size = 150
+
+# Batching growth
+batching_growth = 0.2
 
 total_probe_sent = 0
 
@@ -25,9 +28,10 @@ default_stop_on_consecutive_stars = 3
 max_acceptable_asymmetry = 400
 # Check if too much negative deltas
 default_timeout = 3
+default_meshing_link_timeout = 3
 default_icmp_rate_limit = 50
 
-max_ttl = 12
+max_ttl = 30
 def increment_probe_sent(n):
     global total_probe_sent
     total_probe_sent = total_probe_sent + n
@@ -121,7 +125,7 @@ def execute_phase1(g, destination, vertex_confidence):
 
     while not has_found_longest_path_to_destination and ttl < max_ttl:
         if consecutive_only_star == default_stop_on_consecutive_stars:
-            print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm."
+            print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm, passing to next step"
             return True
         phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
         replies, unanswered = sr(phase1_probes, timeout=default_timeout, verbose=True)
@@ -198,8 +202,16 @@ def get_ttls_in_lb(llb):
             ttls_with_lb.append(ttl)
     return ttls_with_lb
 
-def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks):
-    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+def adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, unanswered):
+    if last_loss_fraction[ttl] >= float(len(unanswered)) / len(replies):
+        adaptive_icmp_rate[ttl] += int(batching_growth * adaptive_icmp_rate[ttl])
+        last_loss_fraction[ttl] = float(len(unanswered)) / len(replies)
+        adaptive_timeout[ttl] += 1
+    elif last_loss_fraction[ttl] < float(len(unanswered)) / len(replies):
+        adaptive_icmp_rate[ttl] -= int(batching_growth * adaptive_icmp_rate[ttl])
+        last_loss_fraction[ttl] = float(len(unanswered)) / len(replies)
+        adaptive_timeout[ttl] -= 1
+def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks, verbose):
     #llb : List of load balancer lb
     for lb in llb:
         # nint is the number of already discovered interfaces
@@ -257,13 +269,27 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
     responding = True
     # Optimization to tell keep in memory if a ttl has reached its statistical guarantees.
     ttl_finished = []
+    meshing_round = 0
 
+    # Prepare the map of the adaptive ICMP rates
+    adaptive_icmp_rate = {}
+    last_loss_fraction = {}
+    adaptive_timeout = {}
+    for lb in llb:
+        for ttl , nint in sorted(lb.get_ttl_vertices_number().iteritems()):
+            adaptive_icmp_rate[ttl] = max_batch_link_probe_size
+            last_loss_fraction[ttl] = 1.0
+            adaptive_timeout[ttl] = default_meshing_link_timeout
     while total_probe_sent < total_budget \
             and links_probes_sent < limit_link_probes\
             and responding\
             and len(ttl_finished) < len(get_ttls_in_lb(llb)):
+        if meshing_round % 5 == 0:
+            print 'Meshing round ' + str(meshing_round) + ", sent " + str(total_probe_sent)
+        meshing_round += 1
         responding = False
         for lb in llb:
+
             # Filter the ttls where there are multiple predecessors
             for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
                 # First hop of the diamond does not have to be reconnected
@@ -284,11 +310,6 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     ttl_finished.append(ttl)
                     has_to_probe_more = False
                 if has_to_probe_more:
-                    # Adapt the batch depending on how much probe we can send without reaching ICMP Rate limit
-                    vertices_by_ttl = find_vertex_by_ttl(g, ttl)
-                    batch_link_probe_size = len(vertices_by_ttl) * (default_icmp_rate_limit - 10)
-                    if batch_link_probe_size > max_batch_link_probe_size :
-                        batch_link_probe_size = max_batch_link_probe_size
                     # Generate probes new flow_ids
                     if links_probes_sent < limit_link_probes:
                         # Privilegiate flows that are already at ttl - 1
@@ -300,10 +321,12 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(overflows) != 0:
                             next_flow_id_overflows = max(overflows)
                         next_flow_id = max(find_max_flow_id(g, ttl), next_flow_id_overflows)
-                        for i in range(1, batch_link_probe_size+1-len(overflows)):
+                        # Adapt the batch depending on how much probe we can send without reaching ICMP Rate limit
+                        for i in range(1, adaptive_icmp_rate[ttl]+1-len(overflows)):
                             check_links_probes.append(build_probe(destination, ttl, next_flow_id + i))
                         increment_probe_sent(len(check_links_probes))
-                        replies, answered = sr(check_links_probes, timeout=default_timeout, verbose=False)
+                        replies, answered = sr(check_links_probes, timeout=adaptive_timeout[ttl], verbose=verbose)
+                        adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, answered)
                         discovered = 0
                         links_probes_sent += len(check_links_probes)
                         if len(replies) > 0:
@@ -322,7 +345,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         for flow in missing_flows:
                             check_missing_flow_probes.append(build_probe(destination, ttl - 1, flow))
                         increment_probe_sent(len(check_missing_flow_probes))
-                        replies, answered = sr(check_missing_flow_probes, timeout=default_timeout, verbose=False)
+                        replies, answered = sr(check_missing_flow_probes, timeout=adaptive_timeout[ttl], verbose=verbose)
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
@@ -398,21 +421,30 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 0
+    limit_edges = 2000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
     save_flows_infos = False
 
     with_alias_resolution = True
+    usage = 'Usage : 3-phase-mda.py <options> <destination>\n' \
+                  'options : \n' \
+                  '-o --ofile <outputfile> (*.xml, default: draw_graph) \n' \
+                  '-c --vertex-confidence <vertex-confidence> (95, 99) Give the failure probability to use in the discovered topology\n' \
+                  '-b --edge-budget <edge-budget> (default:5000) Budget used to discover the links when there is meshing in the topology\n' \
+                  '-s --save-edge-flows Save in the serialized graph the which flows have discovered which interface (in case of remeasuring)\n' \
+                  '-S --source <source> source ip to use in the packets\n' \
+                  '-a --with-alias do alias resolution on load balancers found\n'
     try:
-        opts, args = getopt.getopt(argv, "ho:c:b:isS:", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference", "save-edge-flows", "source="])
+        opts, args = getopt.getopt(argv, "ho:c:b:isS:a", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference", "save-edge-flows", "source=", "with-alias"])
     except getopt.GetoptError:
-        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        print usage
         sys.exit(2)
     for opt, arg in opts:
-        if opt == '-h':
-            print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        if opt in ('-h', "--help"):
+            print usage
+
             sys.exit(2)
         elif opt in ("-o", "--ofile"):
             output_file = arg
@@ -430,8 +462,10 @@ def main(argv):
                 exit(2)
         elif opt in ("-S", "--source"):
             source_name = arg
+        elif opt in ("-a", "--with-alias"):
+            with_alias_resolution = True
     if len(args) != 1:
-        print 'Usage : 3-phase-mda.py -o <outputfile> (*.xml, *.json, default: draw_graph) -c <vertex-confidence> (95, 99) -b <edge-budget> (default:500) <destination>'
+        print usage
         sys.exit(2)
     destination  = args[0]
 
@@ -454,7 +488,8 @@ def main(argv):
     # We assume symmetry until we discover that it is not.
     # First reach the nks for this corresponding hops.
     print "Starting phase 3 : finding the topology of the discovered diamonds"
-    execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99)
+    verbose = False
+    execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, verbose)
     # g = load_graph("test.xml")
     # llb = extract_load_balancers(g)
     clean_stars(g)
