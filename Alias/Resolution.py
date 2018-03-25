@@ -16,7 +16,7 @@ midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 20
-default_number_mbt = 2
+default_number_mbt = 5
 default_elimination_alias_timeout = 1.5
 
 def find_alias_candidates(g, ttl):
