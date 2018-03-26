@@ -14,6 +14,7 @@ from Graph.Visualization import *
 from Graph.Statistics import *
 from Graph.Probabilities import  *
 from Alias.Resolution import *
+import platform
 
 # Link batches
 max_batch_link_probe_size = 150
@@ -536,5 +537,12 @@ def main(argv):
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":
-    config.conf.L3socket = L3dnetSocket
+
+    if platform.system() == "Darwin":
+        config.conf.L3socket = L3dnetSocket
+    elif platform.system() == "Linux":
+        config.conf.L3socket = L3RawSocket
+    elif platform.system() == "Windows":
+        config.conf.L3socket = L3dnetSocket
+
     main(sys.argv[1:])
