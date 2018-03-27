@@ -61,7 +61,6 @@ if __name__ == "__main__":
                 dossier_cree = True
                 directory = path + host + '_xml'
 
-
             date = datetime.now()
             str_date = str(date)
 
@@ -87,6 +86,3 @@ if __name__ == "__main__":
 
         else:
             ssh.close()
-
-
-
