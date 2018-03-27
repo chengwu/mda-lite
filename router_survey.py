@@ -68,15 +68,12 @@ if __name__ == "__main__":
             file_name = host + '_' + dst + '_' + str_date + '.xml'
 
             stdin, stdout, stderr = ssh.exec_command('cd ' + path + '; sudo python ' + '3phasesMda.py -o ' + "'" + file_name + "'" + ' ' + dst)
-            print stdout.read()
-            print stderr.read()
+            stdout.read()
+            stderr.read()
             stdin, stdout, stderr = ssh.exec_command('cd ' + path + '; sudo mv ' + "'" + path + file_name + "'" + ' ' + directory + '/')
             stdout.read()
             stdin, stdout, stderr = ssh.exec_command('cd ' + path + '; sudo mv ' + "'" + path + 'router_level_' + file_name + "'" + ' ' + directory + '/')
             stdout.read()
-
-            # ssh.exec_command('sudo mv ' + path + file_name + ' ' + sub_directory + '/')
-            # ssh.exec_command('sudo mv ' + path + 'router_level_' + file_name + ' ' + sub_directory + '/')
 
             scp = SCPClient(ssh.get_transport())
             scp.get(r'' + directory + '/' + file_name, r'/home/kevin/ROUTER_SURVEY/xml_files/')
