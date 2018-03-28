@@ -327,7 +327,8 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                             check_links_probes.append(build_probe(destination, ttl, next_flow_id + i))
                         increment_probe_sent(len(check_links_probes))
                         replies, answered = sr(check_links_probes, timeout=adaptive_timeout[ttl], verbose=verbose)
-                        adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, answered)
+                        if len(replies) > 0:
+                            adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, answered)
                         discovered = 0
                         links_probes_sent += len(check_links_probes)
                         if len(replies) > 0:
