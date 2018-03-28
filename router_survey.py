@@ -37,7 +37,7 @@ if __name__ == "__main__":
     pkey = paramiko.RSAKey.from_private_key_file("/home/kevin/.ssh/id_rsa")
 
     dossier_cree = False
-    home = "/home/upmc_kvermeulen/"
+    home = "/root/"
     path = home + "MDAPROTOTYPE/"
 
     try:
@@ -53,6 +53,7 @@ if __name__ == "__main__":
     for dst in ip_s:
         try:
             ssh = createSSHClient(host, username, pkey)
+            print "[%s] Executing new MDA on %s ! \n" % (host, dst)
 
             # Creating a directory where to put XML files
             if dossier_cree is False:
@@ -75,8 +76,8 @@ if __name__ == "__main__":
             stdout.read()
 
             scp = SCPClient(ssh.get_transport())
-            scp.get(r'' + directory + '/' + file_name, r'/home/kevin/ROUTER_SURVEY/xml_files/')
-            scp.get(r'' + directory + '/' + 'router_level_' + file_name, r'/home/kevin/ROUTER_SURVEY/xml_files/')
+            scp.get(r'' + directory + '/' + file_name, r'/srv/xml_files/')
+            scp.get(r'' + directory + '/' + 'router_level_' + file_name, r'/srv/xml_files/')
 
             stdin, stdout, stderr = ssh.exec_command('cd ' + path + '; sudo rm -f ' + directory + '/*')
             stdout.read()

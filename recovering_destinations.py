@@ -28,7 +28,25 @@ if __name__ == '__main__':
     db_port   = localport
     c         = r.connect(db_server, db_port)
 
-    sources = ["ple1.cesnet.cz"]
+    sources = ["mars.planetlab.haw-hamburg.de",
+                   "planet4.cs.huji.ac.il",
+                   "ple2.cesnet.cz",
+                   "puri.mimuw.edu.pl",
+                   "stella.planetlab.ntua.gr",
+                   "aladdin.planetlab.extranet.uni-passau.de",
+                   "ple44.planet-lab.eu",
+                   "planetlab13.net.in.tum.de",
+                   "ple43.planet-lab.eu",
+                   "ple1.cesnet.cz",
+                   "planetlab-2.cs.ucy.ac.cy",
+                   "ple41.planet-lab.eu",
+                   "kulcha.mimuw.edu.pl",
+                   "nuc1.planet-lab.eu",
+                   "ple2.planet-lab.eu",
+                   "vicky.planetlab.ntua.gr",
+                   "onelab2.pl.sophia.inria.fr",
+                   "ple2.hpca.ual.es",
+                   "pl-node-1.technion.ac.il"]
     destinations = {}
     for source in sources:
         destinations[source] = []
