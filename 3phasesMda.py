@@ -118,23 +118,24 @@ def reconnect_all_flows(g, destination, llb):
                 reconnect_all_pred_flows_ttl(g, destination, ttl)
 
 
-def execute_phase1(g, destination, vertex_confidence):
+def execute_phase1(g, destination, nks):
     global default_stop_on_consecutive_stars
     has_found_longest_path_to_destination = False
     consecutive_only_star = 0
     ttl = 1
-
+    starting_flow = 1
     while not has_found_longest_path_to_destination and ttl < max_ttl:
         if consecutive_only_star == default_stop_on_consecutive_stars:
             print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm, passing to next step"
             return True
-        phase1_probes = get_phase_1_probe(destination, ttl, vertex_confidence)
+        phase1_probes = get_phase_1_probe(destination, ttl, nks, starting_flow)
         replies, unanswered = sr(phase1_probes, timeout=default_timeout, verbose=True)
         increment_probe_sent(len(phase1_probes))
         replies_only_from_destination = True
         if len(replies) == 0:
             consecutive_only_star = consecutive_only_star + 1
             replies_only_from_destination = False
+            starting_flow += nks[2]
         else:
             consecutive_only_star = 0
         for probe in unanswered:
@@ -480,7 +481,7 @@ def main(argv):
 
     print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds..."
     # Phase 1
-    has_exited_on_consecutive_stars = execute_phase1(g, destination, vertex_confidence)
+    has_exited_on_consecutive_stars = execute_phase1(g, destination, get_nks()[1])
 
     #graph_topology_draw(g)
 
