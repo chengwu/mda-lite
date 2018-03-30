@@ -37,13 +37,17 @@ def increment_probe_sent(n):
     global total_probe_sent
     total_probe_sent = total_probe_sent + n
 
-def update_graph_from_replies(g, replies):
+def send_probes(probes, timeout, verbose = False):
+    before = time.time()
+    replies, answered = sr(probes, timeout=timeout, verbose=verbose)
+    after =  time.time()
+    increment_probe_sent(len(probes))
+    return replies, answered, before, after
+def update_graph_from_replies(g, replies, before, after):
     for probe, reply in replies:
-        src_ip = extract_src_ip(reply)
-        flow_id = extract_flow_id_reply(reply)
-        ttl = extract_ttl(probe)
+        src_ip, flow_id, ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
         # Update the graph
-        g = update_graph(g, src_ip, ttl, flow_id)
+        g = update_graph(g, src_ip, ttl, flow_id, alias_result)
 
 def reconnect_successors(g, destination, ttl):
     reconnect_impl(g, destination, ttl, ttl + 1)
@@ -61,9 +65,8 @@ def reconnect_impl(g, destination, ttl, ttl2):
     for v in no_neighbors_vertices:
         flow_id = ttls_flow_ids[v][ttl][0]
         check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, answered = sr(check_neighbors_probes, timeout=default_timeout, verbose=False)
-    increment_probe_sent(len(check_neighbors_probes))
-    update_graph_from_replies(g, replies)
+    replies, answered, before, after = send_probes(check_neighbors_probes, default_timeout)
+    update_graph_from_replies(g, replies, before, after)
 
 # These functions reconnect a flow_number number of flows (serves for checking cross edges)
 def reconnect_flows_ttl_predecessor(g, destination, ttl, flow_number):
@@ -83,18 +86,16 @@ def reconnect_flows_ttl_impl(g, destination, ttl, ttl2, flow_number):
                 predecessors = find_vertex_by_ttl_flow_id(g, ttl2, flow_id)
                 if predecessors is None:
                     check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, answered = sr(check_neighbors_probes, timeout=default_timeout, verbose=False)
-    increment_probe_sent(len(check_neighbors_probes))
-    update_graph_from_replies(g, replies)
+    replies, answered, before, after = send_probes(check_neighbors_probes, default_timeout)
+    update_graph_from_replies(g, replies, before, after)
 
 def reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl2):
     missing_flows = find_missing_flows(g, ttl, ttl2)
     check_predecessor_probes = []
     for flow_id in missing_flows:
         check_predecessor_probes.append(build_probe(destination, ttl2, flow_id))
-    increment_probe_sent(len(check_predecessor_probes))
-    replies, answered = sr(check_predecessor_probes, timeout=default_timeout, verbose=False)
-    update_graph_from_replies(g, replies)
+    replies, answered, before, after = send_probes(check_predecessor_probes, default_timeout)
+    update_graph_from_replies(g, replies, before, after)
 
 def reconnect_all_succ_flows_ttl(g, destination, ttl):
     reconnect_all_neigh_flows_ttl(g, destination, ttl, ttl + 1)
@@ -129,8 +130,7 @@ def execute_phase1(g, destination, nks):
             print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm, passing to next step"
             return True
         phase1_probes = get_phase_1_probe(destination, ttl, nks, starting_flow)
-        replies, unanswered = sr(phase1_probes, timeout=default_timeout, verbose=True)
-        increment_probe_sent(len(phase1_probes))
+        replies, unanswered, before, after = send_probes(phase1_probes, default_timeout, True)
         replies_only_from_destination = True
         if len(replies) == 0:
             consecutive_only_star = consecutive_only_star + 1
@@ -142,13 +142,11 @@ def execute_phase1(g, destination, nks):
             flow_id = extract_flow_id_probe(probe)
             src_ip = "* * * " + str(ttl)
             # Update the graph
-            g = update_graph(g, src_ip, ttl, flow_id)
+            g = update_graph(g, src_ip, ttl, flow_id, [])
         for probe, reply in replies:
-            src_ip = extract_src_ip(reply)
-            flow_id = extract_flow_id_reply(reply)
-            probe_ttl = extract_ttl(probe)
+            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
             # Update the graph
-            g = update_graph(g, src_ip, probe_ttl, flow_id)
+            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
             # graph_topology_draw(g)
             print src_ip
             if src_ip != destination:
@@ -165,16 +163,13 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
         # Generate the nprobes
         for j in range(1, nprobes + 1):
             probes.append(build_probe(destination, ttl, next_flow_id + j))
-        increment_probe_sent(len(probes))
-        replies, answered = sr(probes, timeout=default_timeout, verbose=False)
+        replies, answered, before, after = send_probes(probes, default_timeout)
         for probe, reply in replies:
-            src_ip = extract_src_ip(reply)
-            flow_id = extract_flow_id_reply(reply)
-            probe_ttl = extract_ttl(probe)
+            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
             if is_new_ip(g, src_ip):
                 hypothesis = hypothesis + 1
             # Update the graph
-            g = update_graph(g, src_ip, probe_ttl, flow_id)
+            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
         nprobe_sent = nprobe_sent + nprobes
 
 def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, nks):
@@ -185,14 +180,8 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
         # Generate the nprobes
         for j in range(1, nprobes + 1):
             probes.append(build_probe(destination, ttl, next_flow_id + j))
-        increment_probe_sent(len(probes))
-        replies, answered = sr(probes, timeout=default_timeout, verbose=False)
-        for probe, reply in replies:
-            src_ip = extract_src_ip(reply)
-            flow_id = extract_flow_id_reply(reply)
-            probe_ttl = extract_ttl(probe)
-            # Update the graph
-            g = update_graph(g, src_ip, probe_ttl, flow_id)
+        replies, answered, before, after = send_probes(probes, default_timeout)
+        update_graph_from_replies(g, replies, before, after)
         nprobe_sent = nprobe_sent + nprobes
         reconnect_predecessors(g, destination, ttl)
         max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
@@ -326,8 +315,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         # Adapt the batch depending on how much probe we can send without reaching ICMP Rate limit
                         for i in range(1, adaptive_icmp_rate[ttl]+1-len(overflows)):
                             check_links_probes.append(build_probe(destination, ttl, next_flow_id + i))
-                        increment_probe_sent(len(check_links_probes))
-                        replies, answered = sr(check_links_probes, timeout=adaptive_timeout[ttl], verbose=verbose)
+                        replies, answered, before, after = send_probes(check_links_probes, default_timeout)
                         if len(replies) > 0:
                             adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, answered)
                         discovered = 0
@@ -335,30 +323,27 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip = extract_src_ip(reply)
-                            flow_id = extract_flow_id_reply(reply)
-                            probe_ttl = extract_ttl(probe)
+                            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before,
+                                                                                                after)
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
                                 discovered = discovered + 1
                             # Update the graph
-                            g = update_graph(g, src_ip, probe_ttl, flow_id)
+                            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
                         # With the new flows generated, find the missing flows at ttl-1
                         check_missing_flow_probes = []
                         missing_flows = find_missing_flows(g, ttl, ttl-1)
                         for flow in missing_flows:
                             check_missing_flow_probes.append(build_probe(destination, ttl - 1, flow))
-                        increment_probe_sent(len(check_missing_flow_probes))
-                        replies, answered = sr(check_missing_flow_probes, timeout=adaptive_timeout[ttl], verbose=verbose)
+                        replies, answered, before, after = send_probes(check_missing_flow_probes, default_timeout)
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip = extract_src_ip(reply)
-                            flow_id = extract_flow_id_reply(reply)
-                            probe_ttl = extract_ttl(probe)
+                            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before,
+                                                                                                after)
                             # Update the graph
                             if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
                                 discovered = discovered + 1
-                            g = update_graph(g, src_ip, probe_ttl, flow_id)
+                            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
                         links_probes_sent += len(check_missing_flow_probes)
                         #dump_flows(g)
 
@@ -389,12 +374,29 @@ def resolve_aliases(destination, llb, g):
             # This commented line uses "common neighbor" heuristic to reduce the number of pairs
             # alias_candidates = find_alias_candidates(g, ttl)
             vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+            ###################### Use already collected IP-ID to fast discarding ##################
+            # Split the serie to see how many ip id we have to collect more.
+            time_series_by_vertices = get_already_collected_time_series_by_vertices(g, vertices_by_ttl)
+            first_time_serie_by_vertices = {v : time_series_by_vertices[v][0] for v in time_series_by_vertices}
+            estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, first_time_serie_by_vertices)
+            # Practise elimination stage without probing on already collected remaining series.
+            # Dont take the incomplete one into account.
+            min_nb_serie = min([len(l) for l in time_series_by_vertices.values()]) - 1
+
+            for i in range(1, min_nb_serie):
+                i_time_serie_by_vertices = {v : time_series_by_vertices[v][i] for v in time_series_by_vertices}
+                elimination_stage_candidates, full_alias_candidates = elimination_stage(g, estimation_stage_candidates,
+                                                                                    full_alias_candidates, ttl,
+                                                                                    destination, i_time_serie_by_vertices, 1)
 
             ###################### Use MIDAR alias resolution technique #####################
             # Estimation stage
-            elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
+            #elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
+            elimination_stage_candidates, full_alias_candidates =  elimination_stage(g, estimation_stage_candidates, full_alias_candidates,
+                                                                                     ttl, destination, None, 1)
             # Elimination stage
-            corroboration_stage_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates, ttl, destination)
+            corroboration_stage_candidates, full_alias_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates,
+                                                                                      ttl, destination, None, default_number_mbt - min_nb_serie)
             # Do not do the corroboratino stage as the subgraphs are already small in elimination stage
             aliases.update(corroboration_stage_candidates)
             ####################### End of MIDAR #########################
@@ -410,7 +412,7 @@ def reconnect_stars(g):
             for ttl, flow_ids in ttls_flow_ids[v].iteritems():
                 max_flow_id = max(find_max_flow_id(g, ttl+1), find_max_flow_id(g, ttl-1))
                 for i in range(0, max_flow_id):
-                    update_graph(g, ip_address[v], ttl, i)
+                    update_graph(g, ip_address[v], ttl, i, [])
 
 
 def check_if_option(s, l, opts):
@@ -424,7 +426,7 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 2000
+    limit_edges = 10000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
@@ -472,34 +474,38 @@ def main(argv):
         sys.exit(2)
     destination  = args[0]
 
+    if True:
 
-    g = init_graph()
-    r_g = None
-    # 3 phases in the algorithm :
-    # 1-2) hop by hop 6 probes to discover length + position of LB
-    # 3) Load balancer discovery
+        g = init_graph()
+        r_g = None
+        # 3 phases in the algorithm :
+        # 1-2) hop by hop 6 probes to discover length + position of LB
+        # 3) Load balancer discovery
 
-    print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds..."
-    # Phase 1
-    has_exited_on_consecutive_stars = execute_phase1(g, destination, get_nks()[1])
+        print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds..."
+        # Phase 1
+        has_exited_on_consecutive_stars = execute_phase1(g, destination, get_nks()[1])
 
-    #graph_topology_draw(g)
+        #graph_topology_draw(g)
 
-    #Phase 2
-    llb = extract_load_balancers(g)
+        #Phase 2
+        llb = extract_load_balancers(g)
 
-    # We assume symmetry until we discover that it is not.
-    # First reach the nks for this corresponding hops.
-    print "Starting phase 3 : finding the topology of the discovered diamonds"
-    verbose = False
-    execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, verbose)
-    # g = load_graph("test.xml")
-    # llb = extract_load_balancers(g)
-    clean_stars(g)
-    reconnect_stars(g)
-    remove_self_loops(g)
+        # We assume symmetry until we discover that it is not.
+        # First reach the nks for this corresponding hops.
+        print "Starting phase 3 : finding the topology of the discovered diamonds"
+        verbose = False
+        execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, verbose)
+        # g = load_graph("test.xml")
+        # llb = extract_load_balancers(g)
+        clean_stars(g)
+        reconnect_stars(g)
+        remove_self_loops(g)
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
+
+        # g = load_graph("test.xml")
+        # llb = extract_load_balancers(g)
         # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
         copy_g = Graph(g)
         interfaces = copy_g.new_vertex_property("vector<string>", [])

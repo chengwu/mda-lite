@@ -94,5 +94,5 @@ if __name__ == "__main__":
     print "Test"
     fill_probability_space(get_nks()[1], 40)
 
-    print expectation_discovered(get_nks()[1], 10, 16)
+    print expectation_discovered(get_nks()[1], 4, 8)
     print expectation_discovered(get_nks()[1], 6, 8)

@@ -13,9 +13,11 @@ def init_graph():
     inferred = g.new_edge_property("bool", False)
     edge_flows = g.new_edge_property("python::object")
 
+    ip_ids = g.new_vertex_property("python::object")
 
     g.vertex_properties["ip_address"] = ip_address
     g.vertex_properties["ttls_flow_ids"] = ttls_flow_ids
+    g.vertex_properties["ip_ids"] = ip_ids
     g.edge_properties["inferred"] = inferred
     g.edge_properties["edge_flows"] = edge_flows
     source = g.add_vertex()
@@ -162,31 +164,37 @@ def update_neigbours(g, v, ttl, flow_id):
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
             else:
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
-def init_vertex(g, v, ip, ttl, flow_id):
+def init_vertex(g, v, ip, alias_result):
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
-
+    ip_ids = g.vertex_properties["ip_ids"]
     ip_address[v] = ip
+    # Filling of first ttl flow ids is done in update neighbours.
     ttls_flow_ids[v] = {}
-
-def add_new_vertex(g, ip, ttl, flow_id):
+    if len(alias_result) > 0:
+        ip_ids[v] = [alias_result]
+    else:
+        ip_ids[v] = []
+def add_new_vertex(g, ip, alias_result):
     v = g.add_vertex()
     # Initialize the vertex
-    init_vertex(g, v, ip, ttl, flow_id)
+    init_vertex(g, v, ip, alias_result)
     return v
 
-def update_graph(g, ip, ttl, flow_id):
+def update_graph(g, ip, ttl, flow_id, alias_result):
     ip_address = g.vertex_properties["ip_address"]
-
+    ip_ids     = g.vertex_properties["ip_ids"]
     already_discovered = False
     for v in g.vertices():
         if ip_address[v] == ip:
+            if len(alias_result) > 0:
+                ip_ids[v].append(alias_result)
             update_neigbours(g, v, ttl, flow_id)
             already_discovered = True
             break
 
     if not already_discovered:
-        v = add_new_vertex(g, ip,  ttl, flow_id)
+        v = add_new_vertex(g, ip, alias_result)
         update_neigbours(g, v, ttl, flow_id)
 
     return g

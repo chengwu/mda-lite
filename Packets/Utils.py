@@ -49,3 +49,11 @@ def extract_ttl(p):
 
 def extract_ip_id(reply):
     return reply[IP].id
+
+def extract_icmp_reply_infos(probe, reply, before, after):
+    src_ip = extract_src_ip(reply)
+    flow_id = extract_flow_id_reply(reply)
+    ttl = extract_ttl(probe)
+    ip_id = extract_ip_id(reply)
+    alias_result = [before, after, ip_id]
+    return src_ip, flow_id, ttl, alias_result
