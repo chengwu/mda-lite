@@ -407,7 +407,7 @@ def clean_stars(g):
             if not has_only_star and star_to_remove is not None:
                 stars_to_remove.append(star_to_remove)
     for star_to_remove in reversed(sorted(stars_to_remove)):
-        print ip_address[star_to_remove]
+        #print ip_address[star_to_remove]
         g.remove_vertex(star_to_remove)
 
 def enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port):
