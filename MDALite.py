@@ -439,13 +439,13 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 10000
+    limit_edges = 2000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
     save_flows_infos = False
 
-    with_alias_resolution = False
+    with_alias_resolution = True
     usage = 'Usage : 3-phase-mda.py <options> <destination>\n' \
                   'options : \n' \
                   '-o --ofile <outputfile> (*.xml, default: draw_graph) \n' \
