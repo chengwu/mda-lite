@@ -16,7 +16,7 @@ midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 20
-default_number_mbt = 5
+default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
 
 def find_alias_candidates(g, ttl):
@@ -510,7 +510,7 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                         #       " and " + ip_address[candidates[j]]
                         pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
                         if not pass_mbt:
-                            print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
+                            #print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
                             elimination_to_remove.add((min_candidate, max_candidate))
 
             for candidate1, candidate2 in elimination_to_remove:
