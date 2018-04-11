@@ -15,6 +15,9 @@ def init_graph():
 
     ip_ids = g.new_vertex_property("python::object")
 
+    lost_ttls_flow_ids = g.new_graph_property("python::object")
+
+    g.graph_properties["lost_ttls_flow_ids"] = lost_ttls_flow_ids
     g.vertex_properties["ip_address"] = ip_address
     g.vertex_properties["ttls_flow_ids"] = ttls_flow_ids
     g.vertex_properties["ip_ids"] = ip_ids
@@ -390,19 +393,22 @@ def merge_vertices(g, v1, v2):
 
 def clean_stars(g):
     ip_address = g.vertex_properties["ip_address"]
+    stars_to_remove = []
     for ttl in range(1, max_ttl+1):
         vertices = find_vertex_by_ttl(g, ttl)
-        star_to_remove = None
         if len(vertices) > 0:
+            star_to_remove = None
             has_only_star = True
             for v in vertices:
                 if not ip_address[v].startswith("*"):
                     has_only_star = False
-                    break
                 else:
                     star_to_remove = v
             if not has_only_star and star_to_remove is not None:
-                g.remove_vertex(star_to_remove)
+                stars_to_remove.append(star_to_remove)
+    for star_to_remove in reversed(sorted(stars_to_remove)):
+        print ip_address[star_to_remove]
+        g.remove_vertex(star_to_remove)
 
 def enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port):
     flow["src_ip"] = source_ip

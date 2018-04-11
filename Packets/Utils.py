@@ -29,11 +29,21 @@ def build_alias_probe(destination):
 
 # 1 protocol for prototyping, UDP
 # Must write vertex_confidence
-def get_phase_1_probe(destination, ttl, nks, starting_flow):
+def get_phase_1_probe(destination, ttl, nks, black_flows):
+    white_flows = []
+    i = 0
+    while len(white_flows) < nks[2]:
+        i += 1
+        if i not in black_flows:
+            white_flows.append(i)
     probes = []
-    for j in range (starting_flow, starting_flow + nk99[2]):
+    for j in white_flows:
         probes.append(build_probe(destination, ttl, j))
     return probes
+
+
+def extract_time(p):
+    return p[IP].time
 
 def extract_src_ip(p):
     return p[IP].src
