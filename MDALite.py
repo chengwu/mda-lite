@@ -143,7 +143,8 @@ def execute_phase1(g, destination, nks):
             replies, unanswered, before, after = send_probes(phase1_probes, default_timeout, True)
             total_replies_ttl += len(replies)
             if len(replies) == 0:
-                consecutive_only_star = consecutive_only_star + 1
+                if total_replies_ttl == 0 :
+                    consecutive_only_star = consecutive_only_star + 1
                 replies_only_from_destination = False
                 update_unanswered(unanswered, ttl, True, g)
                 break
