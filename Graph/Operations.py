@@ -15,12 +15,15 @@ def init_graph():
 
     ip_ids = g.new_vertex_property("python::object")
 
-    lost_ttls_flow_ids = g.new_graph_property("python::object")
+    # Corresponds to fingerprinting to classify routers.
+    # Two elements in this list, first is the ttl reply on an ICMP echo request, second is on time exceeded.
+    finger_printing = g.new_vertex_property("vector<int>")
 
-    g.graph_properties["lost_ttls_flow_ids"] = lost_ttls_flow_ids
+
     g.vertex_properties["ip_address"] = ip_address
     g.vertex_properties["ttls_flow_ids"] = ttls_flow_ids
     g.vertex_properties["ip_ids"] = ip_ids
+    g.vertex_properties["fingerprinting"] = finger_printing
     g.edge_properties["inferred"] = inferred
     g.edge_properties["edge_flows"] = edge_flows
     source = g.add_vertex()
@@ -167,24 +170,27 @@ def update_neigbours(g, v, ttl, flow_id):
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
             else:
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
-def init_vertex(g, v, ip, alias_result):
+def init_vertex(g, v, ip, ttl_reply, alias_result):
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     ip_ids = g.vertex_properties["ip_ids"]
+    fingerprinting = g.vertex_properties["fingerprinting"]
     ip_address[v] = ip
+    fingerprinting[v] = [0, 0]
+    fingerprinting[v][1] = ttl_reply
     # Filling of first ttl flow ids is done in update neighbours.
     ttls_flow_ids[v] = {}
     if len(alias_result) > 0:
         ip_ids[v] = [alias_result]
     else:
         ip_ids[v] = []
-def add_new_vertex(g, ip, alias_result):
+def add_new_vertex(g, ip, ttl_reply, alias_result):
     v = g.add_vertex()
     # Initialize the vertex
-    init_vertex(g, v, ip, alias_result)
+    init_vertex(g, v, ip, ttl_reply, alias_result)
     return v
 
-def update_graph(g, ip, ttl, flow_id, alias_result):
+def update_graph(g, ip, ttl, ttl_reply, flow_id, alias_result):
     ip_address = g.vertex_properties["ip_address"]
     ip_ids     = g.vertex_properties["ip_ids"]
     already_discovered = False
@@ -197,7 +203,7 @@ def update_graph(g, ip, ttl, flow_id, alias_result):
             break
 
     if not already_discovered:
-        v = add_new_vertex(g, ip, alias_result)
+        v = add_new_vertex(g, ip, ttl_reply, alias_result)
         update_neigbours(g, v, ttl, flow_id)
 
     return g

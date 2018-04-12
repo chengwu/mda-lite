@@ -10,6 +10,9 @@ dport  = 33435
 #nk to ensure 5% failure probability
 nk95, nk99 = get_nks()
 
+def build_icmp_echo_request_probe(destination):
+    return IP(dst=destination)/ICMP()
+
 def build_probe(destination, ttl, flow_id):
     ip = build_ip_probe(destination, ttl)
     udp = build_transport_probe(flow_id)
@@ -60,10 +63,15 @@ def extract_ttl(p):
 def extract_ip_id(reply):
     return reply[IP].id
 
-def extract_icmp_reply_infos(probe, reply, before, after):
+def extract_icmp_reply_infos(reply):
     src_ip = extract_src_ip(reply)
     flow_id = extract_flow_id_reply(reply)
-    ttl = extract_ttl(probe)
+    ttl = extract_ttl(reply)
     ip_id = extract_ip_id(reply)
-    alias_result = [before, after, ip_id]
-    return src_ip, flow_id, ttl, alias_result
+    return src_ip, flow_id, ttl, ip_id
+
+def extract_probe_infos(probe):
+    ttl = extract_ttl(probe)
+    ip_id = extract_ip_id(probe)
+
+    return ttl, ip_id

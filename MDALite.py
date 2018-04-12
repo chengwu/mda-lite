@@ -62,9 +62,11 @@ def send_probes(probes, timeout, verbose = False):
 
 def update_graph_from_replies(g, replies, before, after):
     for probe, reply in replies:
-        src_ip, flow_id, ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
+        src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+        ttl_probe, ip_id_probe = extract_probe_infos(probe)
+        alias_result = [before, after, ip_id_reply, ip_id_probe]
         # Update the graph
-        g = update_graph(g, src_ip, ttl, flow_id, alias_result)
+        g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
 
 def reconnect_successors(g, destination, ttl):
     reconnect_impl(g, destination, ttl, ttl + 1)
@@ -123,7 +125,7 @@ def update_unanswered(unanswered, ttl, is_only_star, g = None):
         if is_only_star:
             src_ip = "* * * " + str(ttl)
             # Update the graph
-            g = update_graph(g, src_ip, ttl, flow_id, [])
+            g = update_graph(g, src_ip, ttl, -1, flow_id, [])
         black_flows[ttl].append(flow_id)
 
 def execute_phase1(g, destination, nks):
@@ -152,9 +154,10 @@ def execute_phase1(g, destination, nks):
                 consecutive_only_star = 0
                 update_unanswered(unanswered, ttl, False)
             for probe, reply in replies:
-                src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
-                # Update the graph
-                g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
+                src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                ttl_probe, ip_id_probe = extract_probe_infos(probe)
+                alias_result = [before, after, ip_id_reply, ip_id_probe]                # Update the graph
+                g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
                 # graph_topology_draw(g)
                 print src_ip
                 if src_ip != destination:
@@ -172,11 +175,13 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
         replies, unanswered, before, after = send_probes(probes, default_timeout)
         update_unanswered(unanswered, ttl, False)
         for probe, reply in replies:
-            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
+            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+            ttl_probe, ip_id_probe = extract_probe_infos(probe)
+            alias_result = [before, after, ip_id_reply, ip_id_probe]
             if is_new_ip(g, src_ip):
                 hypothesis = hypothesis + 1
             # Update the graph
-            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
+            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
         nprobe_sent = nprobe_sent + nprobes
 
 def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, nks):
@@ -331,12 +336,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before,
-                                                                                                after)
-                            if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
+                            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                            ttl_probe, ip_id_probe = extract_probe_infos(probe)
+                            alias_result = [before, after, ip_id_reply, ip_id_probe]
+                            if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
                                 discovered = discovered + 1
                             # Update the graph
-                            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
+                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
                         # With the new flows generated, find the missing flows at ttl-1
                         check_missing_flow_probes = []
                         missing_flows = find_missing_flows(g, ttl, ttl-1)
@@ -347,12 +353,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before,
-                                                                                                after)
+                            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                            ttl_probe, ip_id_probe = extract_probe_infos(probe)
+                            alias_result = [before, after, ip_id_reply, ip_id_probe]
                             # Update the graph
-                            if has_discovered_edge(g, src_ip, probe_ttl, flow_id):
+                            if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
                                 discovered = discovered + 1
-                            g = update_graph(g, src_ip, probe_ttl, flow_id, alias_result)
+                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
                         links_probes_sent += len(check_missing_flow_probes)
                         #dump_flows(g)
 
@@ -376,6 +383,10 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
 
 def resolve_aliases(destination, llb, g):
     aliases = {}
+
+    # Get infos on fingerprinting
+    echo_replies, unanswered = send_fingerprinting_probes(g)
+    update_finger_printing(g, echo_replies)
 
     for lb in llb:
         # Filter the ttls where there are multiple predecessors
@@ -421,7 +432,7 @@ def reconnect_stars(g):
             for ttl, flow_ids in ttls_flow_ids[v].iteritems():
                 max_flow_id = max(find_max_flow_id(g, ttl+1), find_max_flow_id(g, ttl-1))
                 for i in range(0, max_flow_id):
-                    update_graph(g, ip_address[v], ttl, i, [])
+                    update_graph(g, ip_address[v], ttl, -1, i, [])
 
 
 def check_if_option(s, l, opts):

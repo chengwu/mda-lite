@@ -18,6 +18,56 @@ default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 20
 default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
+default_fingerprinting_timeout = 5
+
+
+def has_same_fingerprinting(g, v1, v2):
+    fingerprinting = g.vertex_properties["fingerprinting"]
+    fingerprint1 = fingerprinting[v1]
+    fingerprint2 = fingerprinting[v2]
+
+    # To see if they have the same signature, check if the closest power of 2 is the same.
+    sig1 = [0, 0]
+    sig2 = [0, 0]
+    # ttl reply must be between 16 and 255, because the smallest value is 64.
+    for i in range(4, 8):
+        for j in range(0, len(fingerprint1)):
+            if 2**i < fingerprint1[j] and fingerprint1[j] <= 2**(i+1):
+                sig1[j] = i+1
+            if 2 ** i < fingerprint2[j] and fingerprint2[j] <= 2 ** (i+1):
+                sig2[j] = i+1
+
+
+    for i in range(0, len(sig1)):
+        # Handle the case where ICMP echo reply did not respond for one of the interface
+        if sig1[i] == 0 or sig2[i] == 0:
+            continue
+        if sig1[i] != sig2[i]:
+            return False
+
+    return True
+
+def send_fingerprinting_probes(g):
+    ip_address = g.vertex_properties["ip_address"]
+    fingerprinting_probes = []
+    for v in g.vertices():
+        # Do not send a ping to the source
+        if int(v) != 0 and not ip_address[v].startswith("*"):
+            dst_ip = ip_address[v]
+            probe = build_icmp_echo_request_probe(dst_ip)
+            fingerprinting_probes.append(probe)
+
+    replies, unanswered = sr(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
+    return replies, unanswered
+
+def update_finger_printing(g, echo_replies):
+    fingerprinting = g.vertex_properties["fingerprinting"]
+    for probe, reply in echo_replies:
+        ip_reply = extract_src_ip(reply)
+        ttl_reply = extract_ttl(reply)
+        v = find_vertex_by_ip(g, ip_reply)
+        if v is not None:
+            fingerprinting[v][0] = ttl_reply
 
 def find_alias_candidates(g, ttl):
     ip_address = g.vertex_properties["ip_address"]
@@ -98,46 +148,6 @@ def update_alias(aliases):
     for alias in alias_to_pop:
         del aliases[alias]
 
-def send_alias_probes(g, vertices, ttl, destination):
-    unanswered = 0
-    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
-    ip_address = g.vertex_properties["ip_address"]
-    time_series_by_vertices = {}
-
-    for v in vertices:
-        time_series_by_vertices[v] = []
-
-    # Has to check the ip_address to handle per packet LB, well, anw, it will be discarded
-    # in the clean of the velocities
-    for i in range(0, default_alias_icmp_probe_number):
-        one_round_time_before = time.time()
-        for v in vertices:
-            flow_id = ttls_flow_ids[v][ttl][0]
-            alias_udp_probe = build_probe(destination, ttl, flow_id)
-            before = time.time()
-            reply = sr1(alias_udp_probe, timeout=default_alias_timeout, verbose = False)
-            after = time.time()
-            if reply is None:
-                continue
-            ip_id = extract_ip_id(reply)
-            reply_ip = extract_src_ip(reply)
-
-            if ip_address[v] != reply_ip:
-                #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
-                update_graph(g, reply_ip, ttl, flow_id)
-                other_v = find_vertex_by_ip(g, reply_ip)
-                if not time_series_by_vertices.has_key(other_v):
-                    time_series_by_vertices[other_v] = [[before, after, ip_id]]
-                else:
-                    time_series_by_vertices[other_v].append([before, after, ip_id])
-
-                continue
-            time_series_by_vertices[v].append([before, after, ip_id])
-        if i %10 == 0:
-            print str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
-                  + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining"
-    return time_series_by_vertices
-
 
 # Take a list of list of vertices
 def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
@@ -169,17 +179,18 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
             if len(replies) == 0:
                 continue
             for probe, reply in replies:
-                reply_ip, flow_id, probe_ttl, alias_result = extract_icmp_reply_infos(probe, reply, before, after)
+                reply_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                ttl_probe, ip_id_probe = extract_probe_infos(probe)
+                alias_result = [before, after, ip_id_reply, ip_id_probe]
                 ip_id = alias_result[2]
                 if ip_address[v] != reply_ip:
                     #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
-                    update_graph(g, reply_ip, ttl, flow_id, alias_result)
+                    update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result)
                     other_v = find_vertex_by_ip(g, reply_ip)
                     if not time_series_by_vertices.has_key(other_v):
                         time_series_by_vertices[other_v] = [[before, after, ip_id]]
                     else:
                         time_series_by_vertices[other_v].append([before, after, ip_id])
-
                     continue
                 time_series_by_vertices[v].append([before, after, ip_id])
         if i %10 == 0:
@@ -205,10 +216,11 @@ def send_alias_probes_multi_thread(g, v, ttl, destination, shared_dict):
             continue
         ip_id = extract_ip_id(reply)
         reply_ip = extract_src_ip(reply)
+        ttl_reply = extract_ttl(reply)
 
         if ip_address[v] != reply_ip:
             # print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
-            update_graph(g, reply_ip, ttl, flow_id)
+            update_graph(g, reply_ip, ttl, ttl_reply, flow_id, [])
             continue
         time_serie.append([before, after, ip_id])
         if i % 10 == 0:
@@ -221,7 +233,7 @@ def compute_negative_delta(time_serie):
     for i in range(0, len(time_serie)-1):
         while time_serie[i][2] > time_serie[i+1][2]:
             time_serie[i+1][2] += 2**16
-def compute_velocity(time_serie, default_icmp_probe_number = default_alias_icmp_probe_number):
+def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_alias_icmp_probe_number):
     # Do some checking to elapse "unusable" serie
     # Check if responsive treshold
     if len(time_serie) < midar_unusable_treshold * default_icmp_probe_number:
@@ -229,6 +241,15 @@ def compute_velocity(time_serie, default_icmp_probe_number = default_alias_icmp_
     # Check if degenerate treshold
     ip_ids = [x[2] for x in time_serie]
     if len(set(ip_ids)) < midar_degenerate_treshold * len(time_serie):
+        return None
+
+    # Check if the ip ids we got are not just a recopy of those that we had sent (in Cisco Routers)
+    ip_ids_probes = [x[3] for x in time_serie]
+    is_copy = True
+    for i in range(0, len(ip_ids)):
+        if ip_ids[i] != ip_ids_probes[i]:
+            is_copy = False
+    if is_copy:
         return None
 
     ip_ids_delta = [time_serie[i][2] - time_serie[i-1][2] for i in range(1, len(time_serie))]
@@ -378,11 +399,12 @@ def monotonic_bound_test(time_serie1, original_time_serie2):
             return False
     return True
 
-def apply_mbt_ttl(g, time_serie_by_v):
+def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
     ip_address = g.vertex_properties["ip_address"]
     velocities = []
     for v, time_serie in time_serie_by_v.iteritems():
-        velocity = compute_velocity(time_serie, len(time_serie))
+        # This does filter on ip id series that are not usable... That sould be renamed.
+        velocity = compute_velocity_and_filter(time_serie, len(time_serie))
         if velocity is not None:
             velocities.append((v, velocity))
     # Filter those which have too much different velocity
@@ -402,7 +424,8 @@ def apply_mbt_ttl(g, time_serie_by_v):
         time_serie2 = time_serie_by_v[v2]
 
         has_monotonicity_requirement = monotonic_bound_test(time_serie1, time_serie2)
-        if has_monotonicity_requirement:
+        same_fingerprinting = has_same_fingerprinting(g, v1, v2)
+        if has_monotonicity_requirement and same_fingerprinting:
             print ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!"
             full_alias_candidates[v1].add(v2)
             full_alias_candidates[v2].add(v1)
@@ -438,34 +461,7 @@ def split_ip_id_series(g, v):
 
 
 def pre_estimation_stage(g, time_serie_by_v):
-    return apply_mbt_ttl(g, time_serie_by_v)
-
-def estimation_stage(g, vertices_by_ttl, ttl, destination, multi_threaded = False):
-    print "Applying estimation stage to " + str(len(vertices_by_ttl)) + " candidates... This can take few minutes"
-    # if multi_threaded:
-    #     time_serie_by_v = {}
-    #     threads = []
-    #     for v in vertices_by_ttl:
-    #         try:
-    #             t = threading.Thread(target=send_alias_probes_multi_thread, args=(g, v, ttl, destination, time_serie_by_v,))
-    #             threads.append(t)
-    #             # send_velocity_probes(g, v, ttl, destination, time_serie_by_v)
-    #         except Exception as e:
-    #             print e
-    #             print "Error: unable to start thread"
-    #
-    #     for t in threads:
-    #         t.start()
-    #         # Handle concurrent access to sockets?
-    #         time.sleep(0.1)
-    #     for t in threads:
-    #         t.join()
-    # else:
-
-    time_serie_by_v = send_alias_probes(g, vertices_by_ttl, ttl, destination)
-
-    return apply_mbt_ttl(g, time_serie_by_v)
-
+    return apply_mbt_fingerprinting_ttl(g, time_serie_by_v)
 
 def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, ttl, destination, already_collected_time_series = None, nb_round = default_number_mbt):
     assert(already_collected_time_series is None or nb_round == 1)
