@@ -19,11 +19,15 @@ def init_graph():
     # Two elements in this list, first is the ttl reply on an ICMP echo request, second is on time exceeded.
     finger_printing = g.new_vertex_property("vector<int>")
 
+    # RFC 4950, we can have MPLS Infos for free (when MPLS tunnel is visible).
+    mpls  = g.new_vertex_property("python::object")
+
 
     g.vertex_properties["ip_address"] = ip_address
     g.vertex_properties["ttls_flow_ids"] = ttls_flow_ids
     g.vertex_properties["ip_ids"] = ip_ids
     g.vertex_properties["fingerprinting"] = finger_printing
+    g.vertex_properties["mpls"] = mpls
     g.edge_properties["inferred"] = inferred
     g.edge_properties["edge_flows"] = edge_flows
     source = g.add_vertex()
@@ -32,6 +36,7 @@ def init_graph():
     ttls_flow_ids[source][0] = []
     for i in range (1, 5000):
         ttls_flow_ids[source][0].append(i)
+    mpls[source] = []
     return g
 
 def has_common_neighbor(v1, v2):
@@ -144,12 +149,6 @@ def tag_edge_flow(g, e, src_ttl, dst_ttl, flow_id, is_new_edge):
         edge_flows[e]["flows"] = []
     edge_flows[e]["flows"].append({"flow_id": flow_id, "src_ttl":src_ttl, "dst_ttl": dst_ttl})
 def update_neigbours(g, v, ttl, flow_id):
-    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
-
-    if ttls_flow_ids[v].has_key(ttl):
-        ttls_flow_ids[v][ttl].append(flow_id)
-    else:
-        ttls_flow_ids[v][ttl] = [flow_id]
     # Add the corresponding edges if there are to be added
     successors = find_vertex_by_ttl_flow_id(g, ttl+1, flow_id)
     if successors is not None:
@@ -170,42 +169,53 @@ def update_neigbours(g, v, ttl, flow_id):
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, True)
             else:
                 tag_edge_flow(g, e, ttl-1, ttl, flow_id, False)
-def init_vertex(g, v, ip, ttl_reply, alias_result):
+def init_vertex(g, v, ip, ttl_reply):
     ip_address = g.vertex_properties["ip_address"]
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     ip_ids = g.vertex_properties["ip_ids"]
     fingerprinting = g.vertex_properties["fingerprinting"]
+    mpls = g.vertex_properties["mpls"]
     ip_address[v] = ip
     fingerprinting[v] = [0, 0]
     fingerprinting[v][1] = ttl_reply
     # Filling of first ttl flow ids is done in update neighbours.
     ttls_flow_ids[v] = {}
-    if len(alias_result) > 0:
-        ip_ids[v] = [alias_result]
-    else:
-        ip_ids[v] = []
-def add_new_vertex(g, ip, ttl_reply, alias_result):
+    ip_ids[v] = []
+    mpls[v] = []
+
+def add_new_vertex(g, ip, ttl_reply):
     v = g.add_vertex()
     # Initialize the vertex
-    init_vertex(g, v, ip, ttl_reply, alias_result)
+    init_vertex(g, v, ip, ttl_reply)
     return v
 
-def update_graph(g, ip, ttl, ttl_reply, flow_id, alias_result):
+def update_vertex(g, v, ttl, flow_id, alias_result, mpls_infos):
+    ip_ids = g.vertex_properties["ip_ids"]
+    mpls = g.vertex_properties["mpls"]
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    if ttls_flow_ids[v].has_key(ttl):
+        ttls_flow_ids[v][ttl].append(flow_id)
+    else:
+        ttls_flow_ids[v][ttl] = [flow_id]
+    if len(alias_result) > 0:
+        ip_ids[v].append(alias_result)
+    if mpls_infos is not None:
+        mpls[v].append(mpls_infos)
+
+def update_graph(g, ip, ttl, ttl_reply, flow_id, alias_result, mpls_infos):
     ip_address = g.vertex_properties["ip_address"]
-    ip_ids     = g.vertex_properties["ip_ids"]
     already_discovered = False
     for v in g.vertices():
         if ip_address[v] == ip:
-            if len(alias_result) > 0:
-                ip_ids[v].append(alias_result)
+            update_vertex(g, v, ttl, flow_id, alias_result, mpls_infos)
             update_neigbours(g, v, ttl, flow_id)
             already_discovered = True
             break
 
     if not already_discovered:
-        v = add_new_vertex(g, ip, ttl_reply, alias_result)
+        v = add_new_vertex(g, ip, ttl_reply)
+        update_vertex(g, v, ttl, flow_id, alias_result, mpls_infos)
         update_neigbours(g, v, ttl, flow_id)
-
     return g
 
 def dict_vertices_by_ttl(g):
@@ -434,6 +444,14 @@ def enrich_flows(g, source_ip, destination, protocol, default_src_port, default_
 
 def dump_results(g, destination):
     ip_address = g.vertex_properties["ip_address"]
+    mpls = g.vertex_properties["mpls"]
+    mpls_str = " (MPLS)"
+    dump_mpls = {}
+    for v in g.vertices() :
+        if len(mpls[v]) > 0:
+            dump_mpls[v] = mpls_str
+        else:
+            dump_mpls[v] = ""
     # The format is the following : (ttl) : [ip->[successors], ...]
     for ttl in range(0, max_ttl):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
@@ -441,8 +459,8 @@ def dump_results(g, destination):
             sys.stdout.write("("+ str(ttl)+") : ")
             for v in vertices_by_ttl:
                 if ip_address[v] != destination:
-                    sys.stdout.write(ip_address[v] + " -> ")
-                    addresses = [ip_address[succ] for succ in list(v.out_neighbors())]
+                    sys.stdout.write(ip_address[v]  +dump_mpls[v] + " -> ")
+                    addresses = [ip_address[succ] + dump_mpls[succ] for succ in list(v.out_neighbors())]
                     sys.stdout.write(str(addresses))
                     sys.stdout.write("\n")
                 else:

@@ -1,16 +1,30 @@
 #!/usr/bin/env python
 
 from scapy import config
-import sys, getopt
-import time
-import threading
 config.Conf.load_layers.remove("x509")
-import shlex
+
+###### PLATFORM RELATED SOCKETS########
+import platform
+if platform.system() == "Darwin":
+    config.conf.use_pcap = True
+    config.conf.use_dnet = True
+    from scapy.all import L3dnetSocket
+    config.conf.L3socket = L3dnetSocket
+elif platform.system() == "Linux":
+    from scapy.all import L3RawSocket
+    config.conf.L3socket = L3RawSocket
+elif platform.system() == "Windows":
+    config.conf.use_pcap = True
+    config.conf.use_dnet = True
+    from scapy.all import L3dnetSocket
+    config.conf.L3socket = L3dnetSocket
+
 from scapy.all import *
 from Maths.Bounds import *
 from Packets.Utils import *
 from Graph.Operations import *
 from Graph.Visualization import *
+from scapy.contrib.icmp_extensions import *
 from Graph.Statistics import *
 from Graph.Probabilities import  *
 from Alias.Resolution import *
@@ -62,11 +76,11 @@ def send_probes(probes, timeout, verbose = False):
 
 def update_graph_from_replies(g, replies, before, after):
     for probe, reply in replies:
-        src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+        src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
         ttl_probe, ip_id_probe = extract_probe_infos(probe)
         alias_result = [before, after, ip_id_reply, ip_id_probe]
         # Update the graph
-        g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+        g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
 
 def reconnect_successors(g, destination, ttl):
     reconnect_impl(g, destination, ttl, ttl + 1)
@@ -125,7 +139,7 @@ def update_unanswered(unanswered, ttl, is_only_star, g = None):
         if is_only_star:
             src_ip = "* * * " + str(ttl)
             # Update the graph
-            g = update_graph(g, src_ip, ttl, -1, flow_id, [])
+            g = update_graph(g, src_ip, ttl, -1, flow_id, [], None)
         black_flows[ttl].append(flow_id)
 
 def execute_phase1(g, destination, nks):
@@ -154,10 +168,10 @@ def execute_phase1(g, destination, nks):
                 consecutive_only_star = 0
                 update_unanswered(unanswered, ttl, False)
             for probe, reply in replies:
-                src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
                 alias_result = [before, after, ip_id_reply, ip_id_probe]                # Update the graph
-                g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+                g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                 # graph_topology_draw(g)
                 print src_ip
                 if src_ip != destination:
@@ -175,13 +189,13 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
         replies, unanswered, before, after = send_probes(probes, default_timeout)
         update_unanswered(unanswered, ttl, False)
         for probe, reply in replies:
-            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+            src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
             ttl_probe, ip_id_probe = extract_probe_infos(probe)
             alias_result = [before, after, ip_id_reply, ip_id_probe]
             if is_new_ip(g, src_ip):
                 hypothesis = hypothesis + 1
             # Update the graph
-            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
         nprobe_sent = nprobe_sent + nprobes
 
 def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, nks):
@@ -336,13 +350,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                            src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                             ttl_probe, ip_id_probe = extract_probe_infos(probe)
                             alias_result = [before, after, ip_id_reply, ip_id_probe]
                             if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
                                 discovered = discovered + 1
                             # Update the graph
-                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                         # With the new flows generated, find the missing flows at ttl-1
                         check_missing_flow_probes = []
                         missing_flows = find_missing_flows(g, ttl, ttl-1)
@@ -353,13 +367,13 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         if len(replies) > 0:
                             responding = True
                         for probe, reply in replies:
-                            src_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                            src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                             ttl_probe, ip_id_probe = extract_probe_infos(probe)
                             alias_result = [before, after, ip_id_reply, ip_id_probe]
                             # Update the graph
                             if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
                                 discovered = discovered + 1
-                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+                            g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                         links_probes_sent += len(check_missing_flow_probes)
                         #dump_flows(g)
 
@@ -432,7 +446,7 @@ def reconnect_stars(g):
             for ttl, flow_ids in ttls_flow_ids[v].iteritems():
                 max_flow_id = max(find_max_flow_id(g, ttl+1), find_max_flow_id(g, ttl-1))
                 for i in range(0, max_flow_id):
-                    update_graph(g, ip_address[v], ttl, -1, i, [])
+                    update_graph(g, ip_address[v], ttl, -1, i, [], None)
 
 
 def check_if_option(s, l, opts):
@@ -451,7 +465,7 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 2000
+    limit_edges = 8000
     vertex_confidence = 99
     output_file = ""
     with_inference = False
@@ -570,13 +584,6 @@ def main(argv):
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":
-
-    if platform.system() == "Darwin":
-        config.conf.L3socket = L3dnetSocket
-    elif platform.system() == "Linux":
-        config.conf.L3socket = L3RawSocket
-    elif platform.system() == "Windows":
-        config.conf.L3socket = L3dnetSocket
 
     main(sys.argv[1:])
 

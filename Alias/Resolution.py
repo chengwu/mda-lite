@@ -21,6 +21,29 @@ default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
 
 
+def has_same_mpls_label(g, v1, v2):
+    mpls = g.vertex_properties["mpls"]
+    # Look at mpls labels of both vertices
+    mpls_infos_v1 = mpls[v1]
+    mpls_infos_v2 = mpls[v2]
+    mpls_labels_v1 = set(mpls_infos_v1[i]["label"] for i in range(0, len(mpls_infos_v1)))
+    mpls_labels_v2 = set(mpls_infos_v2[i]["label"] for i in range(0, len(mpls_infos_v2)))
+
+    if len(mpls_labels_v1) == 0 or len(mpls_labels_v2) == 0:
+        # Not tagged as a mpls tunnel
+        return False
+
+    if len(mpls_labels_v1) > 1 or len(mpls_labels_v2) > 1:
+        # This means that the tunnel is probably a MULTIFEC case, so we cannot infer anything.
+        return True
+
+    label1 = mpls_infos_v1[0]
+    label2 = mpls_infos_v2[0]
+    if label1 == label2:
+        return True
+    else:
+        return False
+
 def has_same_fingerprinting(g, v1, v2):
     fingerprinting = g.vertex_properties["fingerprinting"]
     fingerprint1 = fingerprinting[v1]
@@ -179,13 +202,13 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
             if len(replies) == 0:
                 continue
             for probe, reply in replies:
-                reply_ip, flow_id, ttl_reply, ip_id_reply = extract_icmp_reply_infos(reply)
+                reply_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
                 alias_result = [before, after, ip_id_reply, ip_id_probe]
                 ip_id = alias_result[2]
                 if ip_address[v] != reply_ip:
                     #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
-                    update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result)
+                    update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                     other_v = find_vertex_by_ip(g, reply_ip)
                     if not time_series_by_vertices.has_key(other_v):
                         time_series_by_vertices[other_v] = [[before, after, ip_id]]
@@ -276,7 +299,7 @@ def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_
     else:
         return -1
 
-def filter_candidates_by_velocity(velocities):
+def filter_candidates(velocities):
     candidates = []
     for i in range(0, len(velocities)-1):
         for j in range(i+1, len(velocities)):
@@ -401,15 +424,20 @@ def monotonic_bound_test(time_serie1, original_time_serie2):
 
 def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
     ip_address = g.vertex_properties["ip_address"]
-    velocities = []
+    mpls = g.vertex_properties["mpls"]
+    candidates = []
     for v, time_serie in time_serie_by_v.iteritems():
         # This does filter on ip id series that are not usable... That sould be renamed.
         velocity = compute_velocity_and_filter(time_serie, len(time_serie))
         if velocity is not None:
-            velocities.append((v, velocity))
+            candidates.append((v, velocity))
+        else:
+            # Take MPLS candidates as they respect different rules.
+            if len(mpls[v]) > 0:
+                candidates.append((v, -1))
     # Filter those which have too much different velocity
     # TODO This should be an option as it is an optimization
-    alias_candidates = filter_candidates_by_velocity(velocities)
+    alias_candidates = filter_candidates(candidates)
 
     next_stage_candidates = {}
     full_alias_candidates = {}
@@ -425,7 +453,8 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
 
         has_monotonicity_requirement = monotonic_bound_test(time_serie1, time_serie2)
         same_fingerprinting = has_same_fingerprinting(g, v1, v2)
-        if has_monotonicity_requirement and same_fingerprinting:
+        same_mpls_label = has_same_mpls_label(g, v1, v2)
+        if (has_monotonicity_requirement and same_fingerprinting) or same_mpls_label:
             print ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!"
             full_alias_candidates[v1].add(v2)
             full_alias_candidates[v2].add(v1)
@@ -466,6 +495,7 @@ def pre_estimation_stage(g, time_serie_by_v):
 def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, ttl, destination, already_collected_time_series = None, nb_round = default_number_mbt):
     assert(already_collected_time_series is None or nb_round == 1)
     ip_address = g.vertex_properties["ip_address"]
+    mpls = g.vertex_properties["mpls"]
     elimination_to_remove = set()
     if len(elimination_stage_candidates) > 0:
         for k in range(0, nb_round):
@@ -504,7 +534,15 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                         # print "Elimination stage : Applying MBT to candidates "\
                         #       + ip_address[candidates[i]] + \
                         #       " and " + ip_address[candidates[j]]
+                        # This condition almost guarantees that they are aliases
+                        if len(mpls[candidates[i]]) > 0 and len(mpls[candidates[j]]) > 0:
+                            same_mpls_label = has_same_mpls_label(g, candidates[i], candidates[j])
+                            if not same_mpls_label:
+                                # No need to look at MBT
+                                elimination_to_remove.add((min_candidate, max_candidate))
+                                continue
                         pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
+
                         if not pass_mbt:
                             #print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
                             elimination_to_remove.add((min_candidate, max_candidate))

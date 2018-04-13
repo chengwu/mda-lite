@@ -1,6 +1,7 @@
 from scapy.all import *
 from Maths.Bounds import *
-
+from scapy.packet import *
+from scapy.contrib.icmp_extensions import *
 # Hardcoded sport
 sport  = 24000
 # Hardcoded dport
@@ -64,11 +65,22 @@ def extract_ip_id(reply):
     return reply[IP].id
 
 def extract_icmp_reply_infos(reply):
+    udp_error = reply[IP][ICMP][IPerror][UDPerror]
+    # udp_error.post_dissection(reply)
+    # udp_error.
+    # Extract MPLS infos
+    icmp_extension = udp_error.payload.payload.payload
+    mpls_infos = None
+    if type(icmp_extension) != scapy.packet.NoPayload:
+        if type(icmp_extension.payload) == ICMPExtensionMPLS:
+            # Extract MPLS stack
+            mpls_stack = icmp_extension.payload.fields["stack"][0].fields
+            mpls_infos = mpls_stack
     src_ip = extract_src_ip(reply)
     flow_id = extract_flow_id_reply(reply)
     ttl = extract_ttl(reply)
     ip_id = extract_ip_id(reply)
-    return src_ip, flow_id, ttl, ip_id
+    return src_ip, flow_id, ttl, ip_id, mpls_infos
 
 def extract_probe_infos(probe):
     ttl = extract_ttl(probe)
