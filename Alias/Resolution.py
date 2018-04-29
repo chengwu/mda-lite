@@ -6,11 +6,12 @@ from scapy import config
 from graph_tool.all import *
 from Graph.Operations import *
 from Packets.Utils import  *
+from Alias.Mpls import *
 
 
 midar_unusable_treshold = 0.75
 midar_degenerate_treshold = 0.25
-midar_negative_delta_treshold = 0.3
+midar_negative_delta_treshold = 0.5
 # Dumb value here to avoid taking velocity into account
 midar_discard_velocity_treshold = 100
 
@@ -21,28 +22,6 @@ default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
 
 
-def has_same_mpls_label(g, v1, v2):
-    mpls = g.vertex_properties["mpls"]
-    # Look at mpls labels of both vertices
-    mpls_infos_v1 = mpls[v1]
-    mpls_infos_v2 = mpls[v2]
-    mpls_labels_v1 = set(mpls_infos_v1[i]["label"] for i in range(0, len(mpls_infos_v1)))
-    mpls_labels_v2 = set(mpls_infos_v2[i]["label"] for i in range(0, len(mpls_infos_v2)))
-
-    if len(mpls_labels_v1) == 0 or len(mpls_labels_v2) == 0:
-        # Not tagged as a mpls tunnel
-        return False
-
-    if len(mpls_labels_v1) > 1 or len(mpls_labels_v2) > 1:
-        # This means that the tunnel is probably a MULTIFEC case, so we cannot infer anything.
-        return True
-
-    label1 = mpls_infos_v1[0]
-    label2 = mpls_infos_v2[0]
-    if label1 == label2:
-        return True
-    else:
-        return False
 
 def has_same_fingerprinting(g, v1, v2):
     fingerprinting = g.vertex_properties["fingerprinting"]
@@ -294,8 +273,9 @@ def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_
 
     # Compute velocity
     time_delta_sum = sum(time_deltas)
-    if time_delta_sum != 0:
-        return float(sum(ip_ids_delta))/ time_delta_sum
+    ip_ids_delta_sum = float(sum(ip_ids_delta))
+    if time_delta_sum != 0 and ip_ids_delta_sum != 0:
+        return ip_ids_delta_sum / time_delta_sum
     else:
         return -1
 
@@ -453,7 +433,7 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
 
         has_monotonicity_requirement = monotonic_bound_test(time_serie1, time_serie2)
         same_fingerprinting = has_same_fingerprinting(g, v1, v2)
-        same_mpls_label = has_same_mpls_label(g, v1, v2)
+        same_mpls_label = is_mpls_alias(g, v1, v2)
         if (has_monotonicity_requirement and same_fingerprinting) or same_mpls_label:
             print ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!"
             full_alias_candidates[v1].add(v2)
@@ -488,6 +468,18 @@ def split_ip_id_series(g, v):
         series.append(serie)
     return series
 
+def remove_mpls_alias(g, l_l_subgraphs):
+    mpls_all_alias_subgraphs = []
+    for l_subgraph in l_l_subgraphs:
+        mpls_all_alias = True
+        for i in range(0, len(l_subgraph) - 1):
+            if not is_mpls_alias(g, l_subgraph[i], l_subgraph[i + 1]):
+                mpls_all_alias = False
+                break
+        if mpls_all_alias:
+            mpls_all_alias_subgraphs.append(l_subgraph)
+    for mpls_subgroup in mpls_all_alias_subgraphs:
+        l_l_subgraphs.remove(mpls_subgroup)
 
 def pre_estimation_stage(g, time_serie_by_v):
     return apply_mbt_fingerprinting_ttl(g, time_serie_by_v)
@@ -507,16 +499,15 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                 candidates.sort()
                 candidates.append(elimination_candidate)
                 l_l_subgraphs.append(candidates)
+            # If there is subgroup with all MPLS alias in a subgroup, do not probe this group.
+            remove_mpls_alias(g, l_l_subgraphs)
             #print "Applying elimination stage to " + str(len(candidates)) + " candidates... This can take few minutes"
             if already_collected_time_series is None:
                 time_series_by_candidate = send_parallel_alias_probes(g, l_l_subgraphs, ttl, destination)
             else:
                 time_series_by_candidate = already_collected_time_series
 
-            for elimination_candidate, set_candidates in elimination_stage_candidates.iteritems():
-                candidates = list(set_candidates)
-                candidates.sort()
-                candidates.append(elimination_candidate)
+            for candidates in l_l_subgraphs:
                 for v, time_serie in time_series_by_candidate.iteritems():
                     compute_negative_delta(time_serie)
                     # # For debug
@@ -536,11 +527,11 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                         #       " and " + ip_address[candidates[j]]
                         # This condition almost guarantees that they are aliases
                         if len(mpls[candidates[i]]) > 0 and len(mpls[candidates[j]]) > 0:
-                            same_mpls_label = has_same_mpls_label(g, candidates[i], candidates[j])
+                            same_mpls_label = is_mpls_alias(g, candidates[i], candidates[j])
                             if not same_mpls_label:
                                 # No need to look at MBT
                                 elimination_to_remove.add((min_candidate, max_candidate))
-                                continue
+                            continue
                         pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
 
                         if not pass_mbt:
@@ -571,6 +562,14 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
     #print "After elimination... : " + str(elimination_stage_candidates)
     return elimination_stage_candidates, full_alias_candidates
 
+
+def remove_self_loop_destination(g, destination):
+
+    v_destination = find_vertex_by_ip(g, destination)
+    if v_destination is not None:
+        edge_to_remove = g.edge(v_destination, v_destination)
+        if edge_to_remove is not None:
+            g.remove_edge(edge_to_remove)
 
 def router_graph(aliases, g):
     vertices_to_be_removed = set()

@@ -38,6 +38,8 @@ batching_growth = 0.2
 
 total_probe_sent = 0
 
+total_replies = 0
+
 default_stop_on_consecutive_stars = 3
 
 max_acceptable_asymmetry = 400
@@ -51,6 +53,10 @@ max_ttl = 30
 
 # Flows that did not answer by ttl.
 black_flows = {}
+
+def increment_replies(n):
+    global total_replies
+    total_replies += total_replies + n
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -72,6 +78,7 @@ def send_probes(probes, timeout, verbose = False):
     replies, answered = sr(probes, timeout=timeout, verbose=verbose)
     after =  time.time()
     increment_probe_sent(len(probes))
+    increment_replies(len(replies))
     return replies, answered, before, after
 
 def update_graph_from_replies(g, replies, before, after):
@@ -539,7 +546,7 @@ def main(argv):
         # llb = extract_load_balancers(g)
         clean_stars(g)
         reconnect_stars(g)
-        remove_self_loops(g)
+        remove_self_loop_destination(g, destination)
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
 
@@ -554,11 +561,12 @@ def main(argv):
         aliases = resolve_aliases(destination, llb, r_g)
         print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
         r_g = router_graph(aliases, r_g)
-        remove_self_loops(r_g)
+        remove_self_loop_destination(r_g, destination)
 
     print "Duration of measurement : " + str(time.time() - origin) + " seconds"
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
     print "Total probe sent : " + str(total_probe_sent)
+    print "Total replies got : " + str(total_replies)
     print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
     print "Phase 3 finished"
 
