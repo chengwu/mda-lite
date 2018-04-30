@@ -1,3 +1,4 @@
+import logging
 from graph_tool.all import *
 
 
@@ -23,13 +24,16 @@ def is_multi_fec_mpls(g, v):
 
 def has_same_mpls_label(g, v1, v2):
     mpls = g.vertex_properties["mpls"]
+    ip_address = g.vertex_properties["ip_address"]
     # Look at mpls labels of both vertices
     mpls_infos_v1 = mpls[v1]
     mpls_infos_v2 = mpls[v2]
+    
 
     label1 = mpls_infos_v1[0]
     label2 = mpls_infos_v2[0]
     if label1 == label2:
+	logging.debug("Found same MPLS label : " + str(label1) + " for " + ip_address[v1] + ", " + ip_address[v2])
         return True
     else:
         return False
