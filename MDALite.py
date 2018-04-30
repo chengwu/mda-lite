@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import logging
 
 from scapy import config
 config.Conf.load_layers.remove("x509")
@@ -156,7 +157,7 @@ def execute_phase1(g, destination, nks):
     ttl = 1
     while not has_found_longest_path_to_destination and ttl < max_ttl:
         if consecutive_only_star == default_stop_on_consecutive_stars:
-            print str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm, passing to next step"
+            logging.info(str(default_stop_on_consecutive_stars) + " consecutive hop with only stars found, stopping the algorithm, passing to next step")
             return True
         total_replies_ttl = 0
         replies_only_from_destination = True
@@ -473,12 +474,16 @@ def main(argv):
     protocol = "udp"
     total_budget = 200000
     limit_edges = 8000
+
     vertex_confidence = 99
     output_file = ""
     with_inference = False
     save_flows_infos = False
 
     with_alias_resolution = True
+    only_alias = False
+    log_level = "INFO"
+
     usage = 'Usage : 3-phase-mda.py <options> <destination>\n' \
                   'options : \n' \
                   '-o --ofile <outputfile> (*.xml, default: draw_graph) \n' \
@@ -486,9 +491,19 @@ def main(argv):
                   '-b --edge-budget <edge-budget> (default:5000) Budget used to discover the links when there is meshing in the topology\n' \
                   '-s --save-edge-flows Save in the serialized graph the which flows have discovered which interface (in case of remeasuring)\n' \
                   '-S --source <source> source ip to use in the packets\n' \
-                  '-a --with-alias do alias resolution on load balancers found\n'
+                  '-a --with-alias do alias resolution on load balancers found after MDA-lite\n'\
+                  '-R --only-alias do only alias resolution (NOT WORKING ATM)\n'\
+                  '-l --log-level set the logging level (Python standard values allowed)\n'
     try:
-        opts, args = getopt.getopt(argv, "ho:c:b:isS:a", ["help","ofile=", "vertex-confidence=", "edge-budget=", "with-inference", "save-edge-flows", "source=", "with-alias"])
+        opts, args = getopt.getopt(argv, "ho:c:b:isS:aRl:", ["help","ofile=",
+                                                           "vertex-confidence=",
+                                                           "edge-budget=",
+                                                           "with-inference",
+                                                           "save-edge-flows",
+                                                           "source=",
+                                                           "with-alias",
+                                                           "only-alias",
+                                                           "log-level"])
     except getopt.GetoptError:
         print usage
         sys.exit(2)
@@ -515,12 +530,19 @@ def main(argv):
             source_name = arg
         elif opt in ("-a", "--with-alias"):
             with_alias_resolution = True
+        elif opt in ("-R", "--only-alias"):
+            only_alias = True
+        elif opt in ("-l", "--log-level"):
+            log_level = arg
+    logging.basicConfig(level=getattr(logging, log_level.upper()))
+    if logging.getLogger().isEnabledFor(logging.DEBUG):
+        limit_edges = 0
     if len(args) != 1:
         print usage
         sys.exit(2)
     destination  = args[0]
 
-    if True:
+    if not only_alias:
         init_black_flows()
         g = init_graph()
         r_g = None
@@ -528,7 +550,7 @@ def main(argv):
         # 1-2) hop by hop 6 probes to discover length + position of LB
         # 3) Load balancer discovery
 
-        print "Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds..."
+        logging.info("Starting phase 1 and 2 : finding a length to the destination and the place of the diamonds...")
         # Phase 1
         execute_phase1(g, destination, get_nks()[1])
 
@@ -539,7 +561,7 @@ def main(argv):
 
         # We assume symmetry until we discover that it is not.
         # First reach the nks for this corresponding hops.
-        print "Starting phase 3 : finding the topology of the discovered diamonds"
+        logging.info("Starting phase 3 : finding the topology of the discovered diamonds")
         verbose = False
         execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, verbose)
         # g = load_graph("test.xml")
@@ -548,10 +570,11 @@ def main(argv):
         reconnect_stars(g)
         remove_self_loop_destination(g, destination)
     if with_alias_resolution:
-        print "Starting phase 4 : proceeding to alias resolution"
+        logging.info("Starting phase 4 : proceeding to alias resolution")
         # HACK FOR DEBUG ###
-        # g = load_graph("test.xml")
-        # llb = extract_load_balancers(g)
+        if only_alias:
+            g = load_graph("test.xml")
+            llb = extract_load_balancers(g)
         #############
         copy_g = Graph(g)
         interfaces = copy_g.new_vertex_property("vector<string>", [])

@@ -196,8 +196,8 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                     continue
                 time_series_by_vertices[v].append([before, after, ip_id_reply, ip_id_probe])
         if i %10 == 0:
-            print str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
-                  + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining"
+            logging.debug(str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
+                  + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining")
     return time_series_by_vertices
 
 def send_alias_probes_multi_thread(g, v, ttl, destination, shared_dict):
@@ -455,7 +455,7 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
         same_fingerprinting = has_same_fingerprinting(g, v1, v2)
         same_mpls_label = is_mpls_alias(g, v1, v2)
         if (has_monotonicity_requirement and same_fingerprinting) or same_mpls_label:
-            print ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!"
+            logging.debug(ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!")
             full_alias_candidates[v1].add(v2)
             full_alias_candidates[v2].add(v1)
             min_alias = min(v1, v2)
@@ -511,8 +511,8 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
     elimination_to_remove = set()
     if len(elimination_stage_candidates) > 0:
         for k in range(0, nb_round):
-            print str(k) + " on " + str(nb_round-1) + " rounds of elimination stage..."
-            print str(len(elimination_stage_candidates)) + " subgroups of ips to test for elimination stage"
+            logging.debug(str(k) + " on " + str(nb_round-1) + " rounds of elimination stage...")
+            logging.debug(str(len(elimination_stage_candidates)) + " subgroups of ips to test for elimination stage")
             l_l_subgraphs = []
             for elimination_candidate, set_candidates in elimination_stage_candidates.iteritems():
                 candidates = list(set_candidates)
@@ -566,11 +566,10 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                             # No need to look at MBT in case of MPLS
                             continue
                         pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
-
-                        if not pass_mbt \
-                                or candidates[i] in candidates_to_remove_treshold\
-                                or candidates[j] in candidates_to_remove_treshold:
-                            #print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
+                        is_not_valid_time_serie = candidates[i] in candidates_to_remove_treshold or candidates[j] in candidates_to_remove_treshold
+                        if not pass_mbt or is_not_valid_time_serie:
+                            logging.debug(ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage")
+                            logging.debug("MBT: " + str(pass_mbt) + " bad time serie: " + str(is_not_valid_time_serie))
                             elimination_to_remove.add((min_candidate, max_candidate))
 
             for candidate1, candidate2 in elimination_to_remove:
@@ -593,7 +592,7 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
             candidates.discard(elimination_candidate)
             for candidate in candidates :
                 if candidate != elimination_candidate:
-                    print ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!"
+                    logging.debug(ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!")
     #print "After elimination... : " + str(elimination_stage_candidates)
     return elimination_stage_candidates, full_alias_candidates
 
