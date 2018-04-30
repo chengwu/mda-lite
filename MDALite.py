@@ -520,7 +520,7 @@ def main(argv):
         sys.exit(2)
     destination  = args[0]
 
-    if False:
+    if True:
         init_black_flows()
         g = init_graph()
         r_g = None
@@ -550,8 +550,8 @@ def main(argv):
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
 
-        g = load_graph("test.xml")
-        llb = extract_load_balancers(g)
+        # g = load_graph("test.xml")
+        # llb = extract_load_balancers(g)
         # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
         copy_g = Graph(g)
         interfaces = copy_g.new_vertex_property("vector<string>", [])
