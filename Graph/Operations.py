@@ -475,7 +475,7 @@ def dump_routers(r_g):
     for v in r_g.vertices():
         router = set(interfaces[v])
         if len(router) > 1:
-            print router
+            print list(router)
 
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]

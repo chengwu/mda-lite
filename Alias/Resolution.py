@@ -540,12 +540,6 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                     candidates_to_remove_treshold.append(v)
                     continue
 
-            # Remove candidates that have not passed the time_serie tests.
-            for candidates in l_l_subgraphs:
-                for candidate_to_remove in candidates_to_remove_treshold:
-                    if candidate_to_remove in candidates:
-                        candidates.remove(candidate_to_remove)
-
             for candidates in l_l_subgraphs:
 
                     # # For debug
@@ -567,12 +561,15 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                         if len(mpls[candidates[i]]) > 0 and len(mpls[candidates[j]]) > 0:
                             same_mpls_label = is_mpls_alias(g, candidates[i], candidates[j])
                             if not same_mpls_label:
-                                # No need to look at MBT
+
                                 elimination_to_remove.add((min_candidate, max_candidate))
+                            # No need to look at MBT in case of MPLS
                             continue
                         pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
 
-                        if not pass_mbt:
+                        if not pass_mbt \
+                                or candidates[i] in candidates_to_remove_treshold\
+                                or candidates[j] in candidates_to_remove_treshold:
                             #print ip_address[candidates[i]] + " and " + ip_address[candidates[j]] + " discarded from the elimination stage!"
                             elimination_to_remove.add((min_candidate, max_candidate))
 

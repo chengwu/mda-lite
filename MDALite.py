@@ -549,10 +549,10 @@ def main(argv):
         remove_self_loop_destination(g, destination)
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
-
+        # HACK FOR DEBUG ###
         # g = load_graph("test.xml")
         # llb = extract_load_balancers(g)
-        # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
+        #############
         copy_g = Graph(g)
         interfaces = copy_g.new_vertex_property("vector<string>", [])
         copy_g.vertex_properties["interfaces"] = interfaces
