@@ -520,7 +520,7 @@ def main(argv):
         sys.exit(2)
     destination  = args[0]
 
-    if True:
+    if False:
         init_black_flows()
         g = init_graph()
         r_g = None
@@ -550,8 +550,8 @@ def main(argv):
     if with_alias_resolution:
         print "Starting phase 4 : proceeding to alias resolution"
 
-        # g = load_graph("test.xml")
-        # llb = extract_load_balancers(g)
+        g = load_graph("test.xml")
+        llb = extract_load_balancers(g)
         # THE BEST IDEA I EVER HAD : DO ALIAS RESOLUTION HERE!
         copy_g = Graph(g)
         interfaces = copy_g.new_vertex_property("vector<string>", [])
@@ -589,6 +589,8 @@ def main(argv):
         if with_alias_resolution:
             r_g.save("router_level_" + output_file)
     dump_results(g, destination)
+    if with_alias_resolution:
+        dump_routers(r_g)
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":

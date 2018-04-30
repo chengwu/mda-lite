@@ -184,17 +184,17 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                 reply_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
                 alias_result = [before, after, ip_id_reply, ip_id_probe]
-                ip_id = alias_result[2]
+
                 if ip_address[v] != reply_ip:
                     #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
                     update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                     other_v = find_vertex_by_ip(g, reply_ip)
                     if not time_series_by_vertices.has_key(other_v):
-                        time_series_by_vertices[other_v] = [[before, after, ip_id]]
+                        time_series_by_vertices[other_v] = [[before, after, ip_id_reply, ip_id_probe]]
                     else:
-                        time_series_by_vertices[other_v].append([before, after, ip_id])
+                        time_series_by_vertices[other_v].append([before, after, ip_id_reply, ip_id_probe])
                     continue
-                time_series_by_vertices[v].append([before, after, ip_id])
+                time_series_by_vertices[v].append([before, after, ip_id_reply, ip_id_probe])
         if i %10 == 0:
             print str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
                   + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining"
@@ -235,23 +235,43 @@ def compute_negative_delta(time_serie):
     for i in range(0, len(time_serie)-1):
         while time_serie[i][2] > time_serie[i+1][2]:
             time_serie[i+1][2] += 2**16
-def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_alias_icmp_probe_number):
-    # Do some checking to elapse "unusable" serie
-    # Check if responsive treshold
-    if len(time_serie) < midar_unusable_treshold * default_icmp_probe_number:
-        return None
-    # Check if degenerate treshold
-    ip_ids = [x[2] for x in time_serie]
-    if len(set(ip_ids)) < midar_degenerate_treshold * len(time_serie):
-        return None
 
+def is_unusable_probe_treshold(time_serie, default_icmp_probe_number):
+    # Check if enough ip_id
+    return len(time_serie) < midar_unusable_treshold * default_icmp_probe_number
+
+def is_degenerate_treshold(ip_ids):
+    # Check if enough distinct ip_id
+    return len(set(ip_ids)) < midar_degenerate_treshold * len(ip_ids)
+
+def is_recopy(ip_ids_probes, ip_ids):
     # Check if the ip ids we got are not just a recopy of those that we had sent (in Cisco Routers)
-    ip_ids_probes = [x[3] for x in time_serie]
     is_copy = True
     for i in range(0, len(ip_ids)):
         if ip_ids[i] != ip_ids_probes[i]:
             is_copy = False
-    if is_copy:
+    return is_copy
+
+def is_too_much_negative_deltas(time_serie):
+    ip_ids_delta = [time_serie[i][2] - time_serie[i - 1][2] for i in range(1, len(time_serie))]
+
+    # Check if too much negative deltas
+    negative_deltas = list(filter(lambda x: x <= 0, ip_ids_delta))
+
+    return len(negative_deltas) > midar_negative_delta_treshold * len(time_serie)
+
+def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_alias_icmp_probe_number):
+    # Do some checking to elapse "unusable" serie
+    if is_unusable_probe_treshold(time_serie, default_icmp_probe_number):
+        return None
+    # Check if degenerate treshold
+    ip_ids = [x[2] for x in time_serie]
+    if is_degenerate_treshold(ip_ids):
+        return None
+
+    # Check if the ip ids we got are not just a recopy of those that we had sent (in Cisco Routers)
+    ip_ids_probes = [x[3] for x in time_serie]
+    if is_recopy(ip_ids_probes, ip_ids):
         return None
 
     ip_ids_delta = [time_serie[i][2] - time_serie[i-1][2] for i in range(1, len(time_serie))]
@@ -507,9 +527,27 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
             else:
                 time_series_by_candidate = already_collected_time_series
 
+
+            candidates_to_remove_treshold = []
+            for v, time_serie in time_series_by_candidate.iteritems():
+                compute_negative_delta(time_serie)
+                ip_ids = [x[2] for x in time_serie]
+                ip_ids_probes = [x[3] for x in time_serie]
+                if is_degenerate_treshold(ip_ids):
+                    candidates_to_remove_treshold.append(v)
+                    continue
+                if is_recopy(ip_ids_probes, ip_ids):
+                    candidates_to_remove_treshold.append(v)
+                    continue
+
+            # Remove candidates that have not passed the time_serie tests.
             for candidates in l_l_subgraphs:
-                for v, time_serie in time_series_by_candidate.iteritems():
-                    compute_negative_delta(time_serie)
+                for candidate_to_remove in candidates_to_remove_treshold:
+                    if candidate_to_remove in candidates:
+                        candidates.remove(candidate_to_remove)
+
+            for candidates in l_l_subgraphs:
+
                     # # For debug
                     # ip_ids = [x[2] for x in time_serie]
                     # sorted_ip_ids = sorted(ip_ids)

@@ -468,6 +468,15 @@ def dump_results(g, destination):
             sys.stdout.write("\n")
             sys.stdout.flush()
 
+
+def dump_routers(r_g):
+    interfaces = r_g.vertex_properties["interfaces"]
+    print "Routers found : "
+    for v in r_g.vertices():
+        router = set(interfaces[v])
+        if len(router) > 1:
+            print router
+
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]
     ll = find_consecutive_sequence(seq)
