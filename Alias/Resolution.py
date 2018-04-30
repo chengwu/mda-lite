@@ -131,26 +131,6 @@ def is_deducable_alias(v1, v2, aliases):
     return v2 in v1_aliases, min_v1_alias
 
 
-def update_alias(aliases):
-    # The goal here is to find all the chains and simplify
-    # the dictionnary by removing keys (using transitivity closure)
-    alias_to_pop = set()
-    already_treated = set()
-    for v1, v1_alias in aliases.iteritems():
-        for v2, v2_alias in aliases.iteritems():
-            if v1 == v2 or v2 in already_treated:
-                continue
-            else:
-                if len(v1_alias.intersection(v2_alias))> 0:
-                    v1_alias.add(v2)
-                    v1_alias = v1_alias.union(v2_alias)
-                    alias_to_pop.add(v2)
-        already_treated.add(v1)
-
-    for alias in alias_to_pop:
-        del aliases[alias]
-
-
 # Take a list of list of vertices
 def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
     if len(l_l_vertices) == 0:
@@ -458,14 +438,7 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
             logging.debug(ip_address[v1] + " and " + ip_address[v2] + " passed the estimation stage!")
             full_alias_candidates[v1].add(v2)
             full_alias_candidates[v2].add(v1)
-            min_alias = min(v1, v2)
-            max_alias = max(v1, v2)
-            if next_stage_candidates.has_key(min_alias):
-                next_stage_candidates[min_alias].add(max_alias)
-            else:
-                next_stage_candidates[min_alias] = set()
-                next_stage_candidates[min_alias].add(max_alias)
-            update_alias(next_stage_candidates)
+    next_stage_candidates = rebuild_subgroups(full_alias_candidates, ip_address)
     return next_stage_candidates, full_alias_candidates
 
 
@@ -504,6 +477,54 @@ def remove_mpls_alias(g, l_l_subgraphs):
 def pre_estimation_stage(g, time_serie_by_v):
     return apply_mbt_fingerprinting_ttl(g, time_serie_by_v)
 
+
+def remove_candidates(elimination_stage_candidates, candidate, ip_address):
+    new_key = None
+    if elimination_stage_candidates.has_key(candidate):
+        new_key = list(elimination_stage_candidates[candidate])[0]
+        elimination_stage_candidates[new_key] = elimination_stage_candidates[candidate]
+        elimination_stage_candidates[new_key].discard(new_key)
+        elimination_stage_candidates.pop(candidate, None)
+        logging.debug("Elimination of candidate : " + str(ip_address[candidate]))
+    else:
+        for key_candidate, value_candidates in elimination_stage_candidates.iteritems():
+            if candidate in value_candidates:
+                value_candidates.remove(candidate)
+                logging.debug("Elimination of candidate : " + str(ip_address[candidate]))
+
+    if new_key is not None:
+        if len(elimination_stage_candidates[new_key]) == 0:
+            elimination_stage_candidates[new_key].pop(new_key, None)
+            logging.debug("Elimination of candidate : " + str(ip_address[new_key]))
+
+
+def rebuild_subgroups(full_alias_candidates, ip_address):
+    subgroups = {}
+    for v, v_potential_aliases in full_alias_candidates.iteritems():
+        has_found_a_subgroup = False
+        if len(v_potential_aliases) == 0:
+            logging.debug("Elimination of candidate : " + str(ip_address[v]))
+            continue
+        for key_g, subgroup in subgroups.iteritems():
+            is_transitivity_subgroup = False
+            if v in subgroup:
+                is_transitivity_subgroup = True
+            else:
+                for v_potential_alias in v_potential_aliases:
+                    if v_potential_alias == key_g or v_potential_alias in subgroup:
+                        is_transitivity_subgroup = True
+                        break
+            if is_transitivity_subgroup:
+                subgroup.update(v_potential_aliases)
+                subgroup.add(v)
+                subgroup.discard(key_g)
+                has_found_a_subgroup = True
+                break
+        if not has_found_a_subgroup:
+            subgroups[v] = v_potential_aliases
+
+    return subgroups
+
 def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, ttl, destination, already_collected_time_series = None, nb_round = default_number_mbt):
     assert(already_collected_time_series is None or nb_round == 1)
     ip_address = g.vertex_properties["ip_address"]
@@ -515,9 +536,11 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
             logging.debug(str(len(elimination_stage_candidates)) + " subgroups of ips to test for elimination stage")
             l_l_subgraphs = []
             for elimination_candidate, set_candidates in elimination_stage_candidates.iteritems():
+
                 candidates = list(set_candidates)
                 candidates.sort()
                 candidates.append(elimination_candidate)
+                logging.debug(str(len(candidates)) + " candidates in this subgroup")
                 l_l_subgraphs.append(candidates)
             # If there is subgroup with all MPLS alias in a subgroup, do not probe this group.
             remove_mpls_alias(g, l_l_subgraphs)
@@ -575,18 +598,21 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
             for candidate1, candidate2 in elimination_to_remove:
                 full_alias_candidates[candidate1].discard(candidate2)
                 full_alias_candidates[candidate2].discard(candidate1)
-                if len(full_alias_candidates[candidate1]) == 0:
-                    #print "Full alias candidate" + str(full_alias_candidates)
-                    if elimination_stage_candidates.has_key(candidate1):
-                        elimination_stage_candidates.pop(candidate1, None)
-                        #print "Elimination of candidate : " + str(candidate1)
-                        #print str(elimination_stage_candidates)
-                if len(full_alias_candidates[candidate2]) == 0:
-                    #print "Full alias candidate" + str(full_alias_candidates)
-                    if elimination_stage_candidates.has_key(candidate2):
-                        elimination_stage_candidates.pop(candidate2, None)
-                       # print "Elimination of candidate : " + str(candidate2)
-                       # print str(elimination_stage_candidates)
+
+            elimination_stage_candidates = rebuild_subgroups(full_alias_candidates, ip_address)
+
+                # if len(full_alias_candidates[candidate1]) == 0:
+                #     #print "Full alias candidate" + str(full_alias_candidates)
+                #     # If candidate 2 was a key, change the key
+                #     remove_candidates(elimination_stage_candidates, candidate1, ip_address)
+                #         #print str(elimination_stage_candidates)
+                # if len(full_alias_candidates[candidate2]) == 0:
+                #     #print "Full alias candidate" + str(full_alias_candidates)
+                #
+                #     remove_candidates(elimination_stage_candidates, candidate2, ip_address)
+                #
+                #        # print "Elimination of candidate : " + str(candidate2)
+                #        # print str(elimination_stage_candidates)
 
         for elimination_candidate, candidates in elimination_stage_candidates.iteritems():
             candidates.discard(elimination_candidate)
@@ -632,3 +658,5 @@ if __name__ == "__main__" :
     time_serie2 = [[1521765740.677916, 1521765740.987718, 51208], [1521765740.989298, 1521765741.214548, 51265], [1521765741.215242, 1521765741.504743, 51283], [1521765741.505357, 1521765741.785454, 51291], [1521765741.786376, 1521765741.889876, 51333], [1521765741.909854, 1521765742.125637, 51346], [1521765742.12663, 1521765742.384633, 51391], [1521765742.394436, 1521765742.738914, 51455], [1521765742.744668, 1521765743.016611, 51506], [1521765743.01741, 1521765743.315387, 51544], [1521765743.317169, 1521765743.585733, 51592], [1521765743.588204, 1521765743.705631, 51647], [1521765743.707362, 1521765743.925208, 51664], [1521765743.925994, 1521765744.130475, 51703], [1521765744.131409, 1521765744.37247, 51716], [1521765744.376166, 1521765744.642112, 51748], [1521765744.643104, 1521765744.768343, 51765], [1521765744.769261, 1521765744.875911, 51777], [1521765744.876553, 1521765745.186713, 51794], [1521765745.188376, 1521765745.270207, 51821], [1521765745.271241, 1521765745.480966, 51833], [1521765745.492889, 1521765745.824302, 51876], [1521765745.832986, 1521765746.005268, 51899], [1521765746.010414, 1521765746.135123, 51935], [1521765746.139311, 1521765746.225639, 51948], [1521765746.250071, 1521765746.397855, 51955], [1521765746.39869, 1521765746.524796, 51979], [1521765746.525592, 1521765746.652564, 51986], [1521765746.653889, 1521765746.740783, 51991], [1521765746.741627, 1521765746.812151, 52014]]
     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
     assert(not pass_mbt)
+
+
