@@ -166,7 +166,7 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                 alias_result = [before, after, ip_id_reply, ip_id_probe]
 
                 if ip_address[v] != reply_ip:
-                    #print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
+                    logging.debug("Flow changed during measurement! Or it is may be not a per-flow load-balancer...")
                     update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                     other_v = find_vertex_by_ip(g, reply_ip)
                     if not time_series_by_vertices.has_key(other_v):
