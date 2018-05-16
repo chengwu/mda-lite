@@ -1,4 +1,5 @@
 import sys
+import logging
 
 from graph_tool.all import *
 from Graph.LoadBalancer import *
@@ -406,6 +407,21 @@ def merge_vertices(g, v1, v2):
 
     for pred in v2.in_neighbors():
         g.add_edge(pred, v1)
+
+
+# Switch to standard MDA implementation
+def mda_continue_probing_ttl(g, hop, nks):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    vertices_ttl = find_vertex_by_ttl(g, hop)
+    for v in vertices_ttl:
+        successors_ttl = len(find_successors_ttl(g, v, hop))
+        v_ttl_flows = ttls_flow_ids[v][hop]
+        if len(v_ttl_flows) < nks[successors_ttl+1]:
+            return True
+    logging.info("TTL " + str(hop) + " finished. MDA Statistical guarantees reached.")
+    return False
+
+
 
 def clean_stars(g):
     ip_address = g.vertex_properties["ip_address"]

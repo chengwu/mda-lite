@@ -49,6 +49,9 @@ default_timeout = 3
 default_meshing_link_timeout = 3
 default_icmp_rate_limit = 50
 
+# Checking meshing flows
+default_check_meshing_flows = 2
+
 max_ttl = 30
 
 
@@ -57,7 +60,7 @@ black_flows = {}
 
 def increment_replies(n):
     global total_replies
-    total_replies += total_replies + n
+    total_replies += n
 
 def increment_probe_sent(n):
     global total_probe_sent
@@ -79,7 +82,7 @@ def send_probes(probes, timeout, verbose = False):
     replies, answered = sr(probes, timeout=timeout, verbose=verbose)
     after =  time.time()
     increment_probe_sent(len(probes))
-    increment_replies(len(replies))
+    increment_replies(len(replies.res))
     return replies, answered, before, after
 
 def update_graph_from_replies(g, replies, before, after):
@@ -235,7 +238,7 @@ def adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout,
         adaptive_icmp_rate[ttl] -= int(batching_growth * adaptive_icmp_rate[ttl])
         last_loss_fraction[ttl] = float(len(unanswered)) / len(replies)
         adaptive_timeout[ttl] -= 1
-def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks, verbose):
+def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_link_probes, with_inference, nks, meshing_flows):
     #llb : List of load balancer lb
     for lb in llb:
         # nint is the number of already discovered interfaces
@@ -253,12 +256,12 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             if len(vertices_prev_ttl) > 1:
                 if is_divergent_ttl:
                     # Reconnect predecessors with a certain number of flows available in order to figure out width asymmetry
-                    reconnect_flows_ttl_predecessor(g, destination, ttl, 2)
+                    reconnect_flows_ttl_predecessor(g, destination, ttl, meshing_flows)
                     has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
                     # If we find width asymmetry with no cross edges, adapt nks
                     degrees = out_degrees_ttl(g, ttl - 1)
                 else:
-                    reconnect_flows_ttl_successor(g, destination, ttl-1, 2)
+                    reconnect_flows_ttl_successor(g, destination, ttl-1, meshing_flows)
                     has_cross_edges = apply_multiple_successors_heuristic(g, ttl-1)
                     degrees = in_degrees_ttl(g, ttl)
                 if len(set(degrees)) != 1 and not has_cross_edges:
@@ -288,7 +291,6 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
     # This number is parametrable
 
     # If three consecutive rounds where we do not discover more edges, we stop
-    consecutive_round_without_new_information = 0
     links_probes_sent = 0
     responding = True
     # Optimization to tell keep in memory if a ttl has reached its statistical guarantees.
@@ -308,8 +310,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             and links_probes_sent < limit_link_probes\
             and responding\
             and len(ttl_finished) < len(get_ttls_in_lb(llb)):
-        if meshing_round % 5 == 0:
-            print 'Meshing round ' + str(meshing_round) + ", sent " + str(total_probe_sent)
+        logging.info('Meshing round ' + str(meshing_round) + ", sent " + str(total_probe_sent))
         meshing_round += 1
         responding = False
         for lb in llb:
@@ -320,17 +321,20 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                 if ttl in ttl_finished:
                     continue
                 if ttl == min(lb.get_ttl_vertices_number().keys()):
+                    logging.info("TTL " + str(ttl) + " finished. Unmeshed hop.")
                     ttl_finished.append(ttl)
                     continue
                 # Check if this TTL is a divergence point or a convergence point
-                probes_sent_to_current_ttl = find_probes_sent(g, ttl)
+                #probes_sent_to_current_ttl = find_probes_sent(g, ttl)
                 if is_a_divergent_ttl(g, ttl):
                     has_cross_edges = apply_multiple_predecessors_heuristic(g, ttl)
                 else:
                     has_cross_edges = apply_multiple_successors_heuristic(g, ttl - 1)
-                probes_needed_to_reach_guarantees = max_probes_needed_ttl(g, lb, ttl, nks)
+                #probes_needed_to_reach_guarantees = max_probes_needed_ttl(g, lb, ttl, nks)
                 has_to_probe_more = has_cross_edges
-                if probes_needed_to_reach_guarantees <= probes_sent_to_current_ttl or not has_cross_edges:
+                if not mda_continue_probing_ttl(g, ttl-1, nks) or not has_cross_edges:
+                    if not has_cross_edges:
+                        logging.info("TTL " + str(ttl) + " finished. Unmeshed hop.")
                     ttl_finished.append(ttl)
                     has_to_probe_more = False
                 if has_to_probe_more:
@@ -357,6 +361,8 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                         links_probes_sent += len(check_links_probes)
                         if len(replies) > 0:
                             responding = True
+                        else:
+                            logging.info("TTL " + str(ttl) + " finished. Not responding.")
                         for probe, reply in replies:
                             src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                             ttl_probe, ip_id_probe = extract_probe_infos(probe)
@@ -473,16 +479,18 @@ def main(argv):
     source_name = ""
     protocol = "udp"
     total_budget = 200000
-    limit_edges = 8000
+    limit_edges = 20000
 
     vertex_confidence = 99
     output_file = ""
     with_inference = False
     save_flows_infos = False
 
-    with_alias_resolution = True
+    with_alias_resolution = False
     only_alias = False
     log_level = "INFO"
+
+    meshing_flows = default_check_meshing_flows
 
     usage = 'Usage : 3-phase-mda.py <options> <destination>\n' \
                   'options : \n' \
@@ -493,9 +501,10 @@ def main(argv):
                   '-S --source <source> source ip to use in the packets\n' \
                   '-a --with-alias do alias resolution on load balancers found after MDA-lite\n'\
                   '-R --only-alias do only alias resolution (NOT WORKING ATM)\n'\
-                  '-l --log-level set the logging level (Python standard values allowed)\n'
+                  '-l --log-level set the logging level (Python standard values allowed)\n'\
+                  '-f --meshing-flows set the number of flows to send back/forward to detect meshing (minimum is 2)'
     try:
-        opts, args = getopt.getopt(argv, "ho:c:b:isS:aRl:", ["help","ofile=",
+        opts, args = getopt.getopt(argv, "ho:c:b:isS:aRl:f:", ["help","ofile=",
                                                            "vertex-confidence=",
                                                            "edge-budget=",
                                                            "with-inference",
@@ -503,7 +512,8 @@ def main(argv):
                                                            "source=",
                                                            "with-alias",
                                                            "only-alias",
-                                                           "log-level"])
+                                                           "log-level",
+                                                           "meshing-flows"])
     except getopt.GetoptError:
         print usage
         sys.exit(2)
@@ -534,9 +544,9 @@ def main(argv):
             only_alias = True
         elif opt in ("-l", "--log-level"):
             log_level = arg
+        elif opt in ("-f", "--meshing-flows"):
+            meshing_flows = int(arg)
     logging.basicConfig(level=getattr(logging, log_level.upper()))
-    if logging.getLogger().isEnabledFor(logging.DEBUG):
-        limit_edges = 0
     if len(args) != 1:
         print usage
         sys.exit(2)
@@ -562,8 +572,7 @@ def main(argv):
         # We assume symmetry until we discover that it is not.
         # First reach the nks for this corresponding hops.
         logging.info("Starting phase 3 : finding the topology of the discovered diamonds")
-        verbose = False
-        execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, verbose)
+        execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_edges, with_inference, nk99, meshing_flows)
         # g = load_graph("test.xml")
         # llb = extract_load_balancers(g)
         clean_stars(g)
