@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import logging
-
+import getopt
 from scapy import config
 config.Conf.load_layers.remove("x509")
 
@@ -606,7 +606,9 @@ def main(argv):
     g_probe_sent[g] = total_probe_sent
     g.graph_properties["probe_sent"] = g_probe_sent
 
-
+    g_useful_probes = g.new_graph_property("int")
+    g_useful_probes[g] = total_replies
+    g.graph_properties["useful_probes"] = g_useful_probes
 
     if output_file == "":
         graph_topology_draw(g)
