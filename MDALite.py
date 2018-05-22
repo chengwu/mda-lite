@@ -416,6 +416,10 @@ def resolve_aliases(destination, llb, g):
     echo_replies, unanswered = send_fingerprinting_probes(g)
     update_finger_printing(g, echo_replies)
 
+
+    # Maintain thwo IP-ID time serie. One with no negative deltas and one with negative deltas.
+    ip_ids = g.vertex_properties["ip_ids"]
+
     for lb in llb:
         # Filter the ttls where there are multiple predecessors
         for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
@@ -423,28 +427,18 @@ def resolve_aliases(destination, llb, g):
             # alias_candidates = find_alias_candidates(g, ttl)
             vertices_by_ttl = find_vertex_by_ttl(g, ttl)
             ###################### Use already collected IP-ID to fast discarding ##################
-            # Split the serie to see how many ip id we have to collect more.
-            time_series_by_vertices = get_already_collected_time_series_by_vertices(g, vertices_by_ttl)
-            first_time_serie_by_vertices = {v : time_series_by_vertices[v][0] for v in time_series_by_vertices}
-            estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, first_time_serie_by_vertices)
-            # Practise elimination stage without probing on already collected remaining series.
-            # Dont take the incomplete one into account.
-            min_nb_serie = min([len(l) for l in time_series_by_vertices.values()]) - 1
+            time_series_by_vertices = { v : ip_ids[v] for v in vertices_by_ttl}
+            estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
 
-            for i in range(1, min_nb_serie):
-                i_time_serie_by_vertices = {v : time_series_by_vertices[v][i] for v in time_series_by_vertices}
-                elimination_stage_candidates, full_alias_candidates = elimination_stage(g, estimation_stage_candidates,
-                                                                                    full_alias_candidates, ttl,
-                                                                                    destination, i_time_serie_by_vertices, 1)
 
             ###################### Use MIDAR alias resolution technique #####################
-            # Estimation stage
-            #elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
-            elimination_stage_candidates, full_alias_candidates =  elimination_stage(g, estimation_stage_candidates, full_alias_candidates,
-                                                                                     ttl, destination, None, 1)
             # Elimination stage
-            corroboration_stage_candidates, full_alias_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates,
-                                                                                      ttl, destination, None, default_number_mbt - min_nb_serie)
+            #elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
+            corroboration_stage_candidates, full_alias_candidates =  elimination_stage(g, estimation_stage_candidates, full_alias_candidates,
+                                                                                     ttl, destination, None, default_number_mbt)
+            # Elimination stage
+            # corroboration_stage_candidates, full_alias_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates,
+            #                                                                           ttl, destination, None, default_number_mbt - min_nb_serie)
             # Do not do the corroboratino stage as the subgraphs are already small in elimination stage
             aliases.update(corroboration_stage_candidates)
             ####################### End of MIDAR #########################
@@ -487,7 +481,7 @@ def main(argv):
     save_flows_infos = False
 
     with_alias_resolution = False
-    only_alias = False
+    only_alias = True
     log_level = "INFO"
 
     meshing_flows = default_check_meshing_flows

@@ -17,6 +17,7 @@ midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 20
+default_pre_estimation_serie = 2000
 default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
@@ -165,51 +166,17 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
                 alias_result = [before, after, ip_id_reply, ip_id_probe]
 
-                if ip_address[v] != reply_ip:
-                    logging.debug("Flow changed during measurement! Or it is may be not a per-flow load-balancer...")
-                    update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
-                    other_v = find_vertex_by_ip(g, reply_ip)
-                    if not time_series_by_vertices.has_key(other_v):
-                        time_series_by_vertices[other_v] = [[before, after, ip_id_reply, ip_id_probe]]
-                    else:
-                        time_series_by_vertices[other_v].append([before, after, ip_id_reply, ip_id_probe])
-                    continue
-                time_series_by_vertices[v].append([before, after, ip_id_reply, ip_id_probe])
+                #logging.debug("Flow changed during measurement! Or it is may be not a per-flow load-balancer...")
+                update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
+                other_v = find_vertex_by_ip(g, reply_ip)
+                if not time_series_by_vertices.has_key(other_v):
+                    time_series_by_vertices[other_v] = [[before, after, ip_id_reply, ip_id_probe]]
+                else:
+                    time_series_by_vertices[other_v].append([before, after, ip_id_reply, ip_id_probe])
         if i %10 == 0:
             logging.debug(str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
                   + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining")
     return time_series_by_vertices
-
-def send_alias_probes_multi_thread(g, v, ttl, destination, shared_dict):
-    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
-    ip_address = g.vertex_properties["ip_address"]
-
-    time_serie = []
-    # Has to check the ip_address to handle per packet LB, well, anw, it will be discarded
-    # in the clean of the velocities
-    for i in range(0, default_alias_icmp_probe_number):
-        one_round_time_before = time.time()
-        flow_id = ttls_flow_ids[v][ttl][0]
-        alias_udp_probe = build_probe(destination, ttl, flow_id)
-        before = time.time()
-        reply = sr1(alias_udp_probe, timeout=default_alias_timeout, verbose=False)
-        after = time.time()
-        if reply is None:
-            continue
-        ip_id = extract_ip_id(reply)
-        reply_ip = extract_src_ip(reply)
-        ttl_reply = extract_ttl(reply)
-
-        if ip_address[v] != reply_ip:
-            # print "Flow changed during measurement! Or it is may be not a per-flow load-balancer..."
-            update_graph(g, reply_ip, ttl, ttl_reply, flow_id, [])
-            continue
-        time_serie.append([before, after, ip_id])
-        if i % 10 == 0:
-            print str(i + 1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, " \
-                  + str(default_alias_icmp_probe_number - (i + 1)) + " rounds remaining"
-    # Seems to not need a lock in python as they don't access the same key
-    shared_dict[v] = time_serie
 
 def compute_negative_delta(time_serie):
     for i in range(0, len(time_serie)-1):
@@ -265,11 +232,12 @@ def compute_velocity_and_filter(time_serie, default_icmp_probe_number = default_
     if len(negative_deltas) > midar_negative_delta_treshold * len(time_serie):
         return None
 
-    for i in range(0, len(time_serie)-1):
-        while time_serie[i][2] > time_serie[i+1][2]:
-            time_serie[i+1][2] += 2**16
+    copy_time_serie = copy.deepcopy(time_serie)
+    for i in range(0, len(copy_time_serie)-1):
+        while copy_time_serie[i][2] > copy_time_serie[i+1][2]:
+            copy_time_serie[i+1][2] += 2**16
 
-    ip_ids_delta = [time_serie[i][2] - time_serie[i-1][2] for i in range(1, len(time_serie))]
+    ip_ids_delta = [copy_time_serie[i][2] - copy_time_serie[i-1][2] for i in range(1, len(copy_time_serie))]
 
     # Compute velocity
     time_delta_sum = sum(time_deltas)
@@ -419,6 +387,9 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
     # TODO This should be an option as it is an optimization
     alias_candidates = filter_candidates(candidates)
 
+    for v, time_serie in time_serie_by_v.iteritems():
+        compute_negative_delta(time_serie)
+
     next_stage_candidates = {}
     full_alias_candidates = {}
     for v1, v2 in alias_candidates:
@@ -440,26 +411,6 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
             full_alias_candidates[v2].add(v1)
     next_stage_candidates = rebuild_subgroups(full_alias_candidates, ip_address)
     return next_stage_candidates, full_alias_candidates
-
-
-def get_already_collected_time_series_by_vertices(g, vertices_by_ttl):
-    time_series_by_vertices = {}
-    for v in vertices_by_ttl:
-        time_series_by_vertices[v] = split_ip_id_series(g, v)
-    return time_series_by_vertices
-def split_ip_id_series(g, v):
-    ip_ids = g.vertex_properties["ip_ids"]
-    flat_serie = ip_ids[v]
-    series = []
-    for i in range (0, len(flat_serie), default_alias_icmp_probe_number):
-        serie = []
-        for j in range(i, i + default_alias_icmp_probe_number):
-            if len(flat_serie) > j :
-                serie.append(flat_serie[j])
-            else:
-                break
-        series.append(serie)
-    return series
 
 def remove_mpls_alias(g, l_l_subgraphs):
     mpls_all_alias_subgraphs = []
