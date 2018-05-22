@@ -481,7 +481,7 @@ def main(argv):
     save_flows_infos = False
 
     with_alias_resolution = False
-    only_alias = True
+    only_alias = False
     log_level = "INFO"
 
     meshing_flows = default_check_meshing_flows
