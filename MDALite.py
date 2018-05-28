@@ -29,7 +29,6 @@ from scapy.contrib.icmp_extensions import *
 from Graph.Statistics import *
 from Graph.Probabilities import  *
 from Alias.Resolution import *
-import platform
 
 # Link batches
 max_batch_link_probe_size = 150
@@ -604,18 +603,20 @@ def main(argv):
     g_useful_probes[g] = total_replies
     g.graph_properties["useful_probes"] = g_useful_probes
 
-    if output_file == "":
+    if save_flows_infos:
+        # Get source info
+        source_ip = source_name
+        enrich_flows(g, source_ip, destination, protocol, sport, dport)
+
+    if output_file == "draw":
         graph_topology_draw(g)
         if with_alias_resolution:
             graph_router_topology_level_draw(r_g)
-    else:
-        if save_flows_infos:
-            # Get source info
-            source_ip = source_name
-            enrich_flows(g, source_ip, destination, protocol, sport, dport)
+    elif output_file != "":
         g.save(output_file)
         if with_alias_resolution:
             r_g.save("router_level_" + output_file)
+    # Dump results in any case
     dump_results(g, destination)
     if with_alias_resolution:
         dump_routers(r_g)
