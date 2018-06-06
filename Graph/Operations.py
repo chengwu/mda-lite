@@ -458,16 +458,25 @@ def enrich_flows(g, source_ip, destination, protocol, default_src_port, default_
             for flow in flows["flows"]:
                 enrich_flow_data(flow, source_ip, destination, protocol, default_src_port, default_dst_port)
 
-def dump_results(g, destination):
+def dump_results(g, with_alias_resolution, with_ip_to_as, destination):
     ip_address = g.vertex_properties["ip_address"]
+    if with_ip_to_as:
+        ripe_asns = g.vertex_properties["ripe_asns"]
+
     mpls = g.vertex_properties["mpls"]
     mpls_str = " (MPLS)"
+    dump_ripe_asns = {}
     dump_mpls = {}
     for v in g.vertices() :
         if len(mpls[v]) > 0:
             dump_mpls[v] = mpls_str
         else:
             dump_mpls[v] = ""
+        if with_ip_to_as:
+            dump_ripe_asns[v] = ""
+            if ripe_asns[v] is not None:
+                for as_infos in ripe_asns[v]:
+                    dump_ripe_asns[v] = dump_ripe_asns[v] + " (" + str(as_infos["holder"]) + ", " +str(as_infos["asn"]) + ")"
     # The format is the following : (ttl) : [ip->[successors], ...]
     for ttl in range(0, max_ttl):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
@@ -475,7 +484,10 @@ def dump_results(g, destination):
             sys.stdout.write("("+ str(ttl)+") : ")
             for v in vertices_by_ttl:
                 if ip_address[v] != destination:
-                    sys.stdout.write(ip_address[v]  +dump_mpls[v] + " -> ")
+                    infos = ip_address[v]  + dump_mpls[v]
+                    if with_ip_to_as:
+                        infos = infos + str(dump_ripe_asns[v])
+                    sys.stdout.write(infos + " -> ")
                     addresses = [ip_address[succ] + dump_mpls[succ] for succ in list(v.out_neighbors())]
                     sys.stdout.write(str(addresses))
                     sys.stdout.write("\n")
@@ -484,14 +496,15 @@ def dump_results(g, destination):
             sys.stdout.write("\n")
             sys.stdout.flush()
 
+    if with_alias_resolution:
+        dump_routers(g)
+
 
 def dump_routers(r_g):
-    interfaces = r_g.vertex_properties["interfaces"]
+    routers = r_g.graph_properties["routers"]
     print "Routers found : "
-    for v in r_g.vertices():
-        router = set(interfaces[v])
-        if len(router) > 1:
-            print list(router)
+    for router in routers:
+        print router
 
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]

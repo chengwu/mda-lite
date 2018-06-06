@@ -29,7 +29,7 @@ from scapy.contrib.icmp_extensions import *
 from Graph.Statistics import *
 from Graph.Probabilities import  *
 from Alias.Resolution import *
-
+from IP2AS.ip2as import *
 # Link batches
 max_batch_link_probe_size = 150
 
@@ -480,6 +480,7 @@ def main(argv):
     save_flows_infos = False
 
     with_alias_resolution = False
+    with_ip2as = False
     only_alias = False
     log_level = "INFO"
 
@@ -493,11 +494,12 @@ def main(argv):
                   '-s --save-edge-flows Save in the serialized graph the which flows have discovered which interface (in case of remeasuring)\n' \
                   '-S --source <source> source ip to use in the packets\n' \
                   '-a --with-alias do alias resolution on load balancers found after MDA-lite\n'\
+                  '-A --with-ip2as do ip2as resolution\n'\
                   '-R --only-alias do only alias resolution (NOT WORKING ATM)\n'\
                   '-l --log-level set the logging level (Python standard values allowed)\n'\
                   '-f --meshing-flows set the number of flows to send back/forward to detect meshing (minimum is 2)'
     try:
-        opts, args = getopt.getopt(argv, "ho:c:b:isS:aRl:f:", ["help","ofile=",
+        opts, args = getopt.getopt(argv, "ho:c:b:isS:aARl:f:", ["help","ofile=",
                                                            "vertex-confidence=",
                                                            "edge-budget=",
                                                            "with-inference",
@@ -533,6 +535,8 @@ def main(argv):
             source_name = arg
         elif opt in ("-a", "--with-alias"):
             with_alias_resolution = True
+        elif opt in ("-A", "--with-ip2as"):
+            with_ip2as = True
         elif opt in ("-R", "--only-alias"):
             only_alias = True
         elif opt in ("-l", "--log-level"):
@@ -548,7 +552,6 @@ def main(argv):
     if not only_alias:
         init_black_flows()
         g = init_graph()
-        r_g = None
         # 3 phases in the algorithm :
         # 1-2) hop by hop 6 probes to discover length + position of LB
         # 3) Load balancer discovery
@@ -575,18 +578,25 @@ def main(argv):
         logging.info("Starting phase 4 : proceeding to alias resolution")
         # HACK FOR DEBUG ###
         if only_alias:
-            g = load_graph("test.xml")
+            #g = load_graph("router_level_test.xml")
             llb = extract_load_balancers(g)
         #############
-        copy_g = Graph(g)
-        interfaces = copy_g.new_vertex_property("vector<string>", [])
-        copy_g.vertex_properties["interfaces"] = interfaces
-        r_g = Graph(copy_g)
+        #copy_g = Graph(g)
+        # interfaces = copy_g.new_vertex_property("vector<string>", [])
+        # copy_g.vertex_properties["interfaces"] = interfaces
         before_alias = time.time()
-        aliases = resolve_aliases(destination, llb, r_g)
+        aliases = resolve_aliases(destination, llb, g)
         print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
-        r_g = router_graph(aliases, r_g)
-        remove_self_loop_destination(r_g, destination)
+        #r_g = router_graph(aliases, r_g)
+        save_routers(aliases, g)
+        remove_self_loop_destination(g, destination)
+
+    if with_ip2as:
+        logging.info("Starting phase 5 : proceeding to ip2as resolution")
+        #g = load_graph("router_level_test.xml")
+        ripe_ip2as(g)
+        # bgp_stream_ip_to_as(g, origin)
+
 
     print "Duration of measurement : " + str(time.time() - origin) + " seconds"
     print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
@@ -609,17 +619,18 @@ def main(argv):
         enrich_flows(g, source_ip, destination, protocol, sport, dport)
 
     if output_file == "draw":
-        graph_topology_draw(g)
-        if with_alias_resolution:
-            graph_router_topology_level_draw(r_g)
+        #r_g = load_graph("router_level_test.xml")
+        graph_topology_draw(g, with_alias_resolution, with_ip2as)
+        # if with_alias_resolution:
+        #     graph_router_topology_level_draw(r_g)
     elif output_file != "":
         g.save(output_file)
-        if with_alias_resolution:
-            r_g.save("router_level_" + output_file)
-    # Dump results in any case
-    dump_results(g, destination)
-    if with_alias_resolution:
-        dump_routers(r_g)
+    # Dump txt results in any case
+    dump_results(g, with_alias_resolution, with_ip2as, destination)
+
+    # if with_alias_resolution:
+    #     dump_routers(r_g)
+
     #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
     #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":
