@@ -42,7 +42,7 @@ def graph_topology_draw_with_inferred(g):
                )
 
 
-def graph_topology_draw(g, with_alias_resolution, with_ip2as_resolution):
+def graph_topology_draw(g, with_alias_resolution, with_ip2as_resolution, output_file = None):
     ip_address = g.vertex_properties["ip_address"]
 
     # Manually adjust positions.
@@ -55,7 +55,7 @@ def graph_topology_draw(g, with_alias_resolution, with_ip2as_resolution):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
         x_coordinate = 20 * ttl
         y_coordinate = 0
-        y_step = 10
+        y_step = 8
         for i in range(0, len(vertices_by_ttl)):
             v = vertices_by_ttl[i]
             if pos[v][0] == 0 and pos[v][1] == 0:
@@ -126,7 +126,7 @@ def graph_topology_draw(g, with_alias_resolution, with_ip2as_resolution):
                , vertex_color = black_color
                , edge_pen_width=0.2, edge_marker_size=6
                # ,aspect = 12,
-               , output_size=(1500, 750), output=None
+               , output_size=(1500, 750), output=output_file
                )
 
 def graph_router_topology_level_draw(g):
@@ -148,3 +148,17 @@ def graph_router_topology_level_draw(g):
                # ,aspect = 12,
                , output_size=(1500, 750), output=None
                )
+
+
+if __name__ ==  "__main__":
+    # g = load_graph("/Users/kevinvermeulen/PycharmProjects/stat-paris-traceroute/resources/router_survey/1/aladdin.planetlab.extranet.uni-passau.de_107.20.41.245_2018-04-15 19:32:11.480753.xml")
+    # g = load_graph("/Users/kevinvermeulen/PycharmProjects/stat-paris-traceroute/resources/router_survey/1/planetlab13.net.in.tum.de_124.198.80.129_2018-04-13 09:53:47.442868.xml")
+    g = load_graph(
+        "/Users/kevinvermeulen/PycharmProjects/MDAPROTOTYPE/test.xml")
+    ip_address = g.vertex_properties["ip_address"]
+    for ttl in range(1, 30):
+        v_by_ttls = find_vertex_by_ttl(g, ttl)
+        ip_addresses_ttl = [ip_address[v] for v in v_by_ttls]
+        print str(ttl) +": "+ str(ip_addresses_ttl)
+
+    graph_topology_draw(g, with_alias_resolution=False, with_ip2as_resolution=False)

@@ -3,11 +3,16 @@ import logging
 
 from graph_tool.all import *
 from Graph.LoadBalancer import *
+from Algorithm.Constants import *
 
 max_ttl = 30
 
-def init_graph():
+def init_graph(destination):
     g = Graph()
+
+    destination_prop = g.new_graph_property("string")
+    destination_prop[g] = destination
+    g.graph_properties["destination"] = destination_prop
     ip_address = g.new_vertex_property("string")
     ttls_flow_ids = g.new_vertex_property("python::object")
 
@@ -96,6 +101,15 @@ def find_predecessors_ttl(g, v, ttl):
 def find_successors_ttl(g, v, ttl):
     return find_neighbors_ttl(g, v, ttl, ttl+1)
 
+# Find the maximum TTL in g
+def find_max_ttl(g):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    ttls = set()
+    for v in g.vertices():
+        for ttl, flow_id in ttls_flow_ids[v].iteritems():
+            ttls.add(ttl)
+    return max(ttls)
+
 def find_max_flow_id(g, ttl):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     max_flow_id = -1
@@ -105,6 +119,10 @@ def find_max_flow_id(g, ttl):
                 for flow_id in flow_ids:
                     if flow_id > max_flow_id:
                         max_flow_id = flow_id
+
+    black_flows_ttl = black_flows[ttl]
+    if len(black_flows_ttl) > 0 :
+        max_flow_id = max(max(black_flows_ttl), max_flow_id)
     return max_flow_id
 
 def find_probes_sent(g, ttl):
@@ -411,17 +429,46 @@ def merge_vertices(g, v1, v2):
 
 # Switch to standard MDA implementation
 def mda_continue_probing_ttl(g, hop, nks):
-    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
     vertices_ttl = find_vertex_by_ttl(g, hop)
+    vertices_successors = find_vertex_by_ttl(g, hop + 1)
+    if len(vertices_successors) == 0 :
+        return True
     for v in vertices_ttl:
-        successors_ttl = len(find_successors_ttl(g, v, hop))
-        v_ttl_flows = ttls_flow_ids[v][hop]
-        if len(v_ttl_flows) < nks[successors_ttl+1]:
+        if mda_continue_probing_v(g, hop, v, nks):
             return True
     logging.info("TTL " + str(hop) + " finished. MDA Statistical guarantees reached.")
     return False
 
+def mda_continue_probing_v(g, hop, v, nks):
+    successors_ttl = len(find_successors_ttl(g, v, hop))
+    flows, black_flows_v = forwarded_flows(g, v, hop)
+    if len(flows) == 0 and len(black_flows_v) == 0:
+        # Nothing has been forwarded yet
+        return True
 
+    # Only black flowds, stop.
+    if len(flows) == 0 and len(black_flows_v) >= nks[successors_ttl + 1]:
+        return False
+
+    # If some responsive flows.
+    return len(flows) < nks[successors_ttl + 1]
+
+
+def forwarded_flows(g, v, ttl):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    flows = []
+    black_flows_v = []
+    # Now extract the flows that were not sent at ttl + 1
+    for flow_id in ttls_flow_ids[v][ttl]:
+        if flow_id in black_flows[ttl + 1]:
+            black_flows_v.append(flow_id)
+            continue
+        # Look if the flow has already been used.
+        successor_flow_ttl_v = find_vertex_by_ttl_flow_id(g, ttl + 1, flow_id)
+        # Look if this flow is in the black flows
+        if successor_flow_ttl_v is not None:
+            flows.append(flow_id)
+    return flows, black_flows_v
 
 def clean_stars(g):
     ip_address = g.vertex_properties["ip_address"]
@@ -505,6 +552,22 @@ def dump_routers(r_g):
     print "Routers found : "
     for router in routers:
         print router
+
+
+############################## REMAPPING OPERATIONS #################################
+def find_common_flow(g, e):
+    ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    source = e.source()
+    target = e.target()
+    # Find the common flow
+    for ttl_source, flow_ids_source in ttls_flow_ids[source].iteritems():
+        for ttl_target, flow_ids_target in ttls_flow_ids[target].iteritems():
+            if ttl_source + 1 == ttl_target:
+                for flow_id_source in flow_ids_source:
+                    for flow_id_target in flow_ids_target:
+                        if flow_id_source == flow_id_target:
+                            return (ttl_source, ttl_target, flow_id_source)
+
 
 if __name__ == "__main__":
     seq = [1, 2, 4, 5, 7, 8]

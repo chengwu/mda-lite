@@ -17,7 +17,7 @@ def build_icmp_echo_request_probe(destination):
 def build_probe(destination, ttl, flow_id):
     ip = build_ip_probe(destination, ttl)
     udp = build_transport_probe(flow_id)
-    raw = build_raw_probe("he")
+    raw = build_raw_probe("")
     return ip/udp/raw
 
 def build_ip_probe(destination, ttl):
