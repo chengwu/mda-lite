@@ -27,8 +27,10 @@ def mda(g, destination, nks):
 
 
     consecutive_star = 0
+    error_loop_looping_ip = None
+    consecutive_loop = 0
     for ttl in range (0, max_ttl):
-
+        logging.info("Starting MDA discovery between hop " + str(ttl) + " and " + str(ttl+1))
         vertices_ttl = find_vertex_by_ttl(g, ttl)
         while mda_continue_probing_ttl(g, ttl, nks):
             # If the only vertex at TTL is a star, we dont need stochastic probing. Just send some flows until reach nks.
@@ -53,21 +55,42 @@ def mda(g, destination, nks):
             # Then forward these flows the the subsequent hop
             flows = flows_to_forward(g, ttl, nks)
             forward_flows(g, destination, ttl, flows)
-
+            # Give up if the response rate is too low
+            subsequent_flows = find_flows(g, ttl+1)
+            if len(black_flows[ttl+1]) * give_up_undesponsive_rate > len(subsequent_flows) > 0:
+                logging.info("Response rate too low. Giving up. Can be due to routing configuration error.")
+                return
 
         # Return if destination reached.
         only_destination = True
         vertices_successors = find_vertex_by_ttl(g, ttl + 1)
 
-        if len(vertices_successors) == 1 and ip_address[vertices_successors[0]].startswith("*"):
-            consecutive_star += 1
-            if consecutive_star < default_stop_on_consecutive_stars:
-                continue
+        if len(vertices_successors) == 1 :
+
+            lone_ip = vertices_successors[0]
+
+            if ip_address[lone_ip].startswith("*"):
+                consecutive_star += 1
+                if consecutive_star < default_stop_on_consecutive_stars:
+                    continue
+                else:
+                    logging.info(str(default_stop_on_consecutive_stars) + " consecutive stars found, stopping the algorithm.")
+                    return
+            if  ip_address[lone_ip] == error_loop_looping_ip:
+                consecutive_loop += 1
+                error_loop_looping_ip = ip_address[lone_ip]
+                if consecutive_loop < default_stop_on_consecutive_stars:
+                    continue
+                else:
+                    logging.info(str(default_stop_on_consecutive_stars) + " consecutive loop found, stopping the algorithm.")
+                    return
             else:
-                logging.info(str(default_stop_on_consecutive_stars) + " consecutive stars found, stopping the algorithm.")
-                return
+                consecutive_loop = 0
+                error_loop_looping_ip = ip_address[lone_ip]
         else:
             consecutive_star = 0
+            consecutive_loop = 0
+            error_loop_looping_ip = None
         for v in vertices_successors:
             if ip_address[v] != destination:
                 only_destination = False

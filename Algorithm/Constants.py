@@ -6,6 +6,11 @@ default_timeout = 3
 default_meshing_link_timeout = 3
 default_icmp_rate_limit = 50
 
+
+#give_up rate
+give_up_undesponsive_rate = 0.05
+
+
 stochastic_timeout = 0.75
 
 # Batching growth
