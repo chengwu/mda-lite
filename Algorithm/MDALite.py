@@ -141,7 +141,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
             adaptive_icmp_rate[ttl] = max_batch_link_probe_size
             last_loss_fraction[ttl] = 1.0
             adaptive_timeout[ttl] = default_meshing_link_timeout
-    while total_probe_sent < total_budget \
+    while   get_total_probe_sent() < give_up_probes \
             and links_probes_sent < limit_link_probes \
             and len(ttl_finished) < len(get_ttls_in_lb(llb)):
         logging.info('Meshing round ' + str(meshing_round) + ", sent " + str(total_probe_sent))
@@ -227,7 +227,7 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     #     #dump_flows(g)
 
                     # Switch to MDA
-                    while mda_continue_probing_ttl(g, ttl - 1, nks):
+                    while mda_continue_probing_ttl(g, ttl - 1, nks) and get_total_probe_sent() < give_up_probes:
                         stochastic_and_forward(g, destination, ttl - 1, nks)
                         subsequent_flows = find_flows(g, ttl)
                         if len(black_flows[ttl]) * give_up_undesponsive_rate > len(subsequent_flows) > 0:

@@ -32,7 +32,7 @@ def mda(g, destination, nks):
     for ttl in range (0, max_ttl):
         logging.info("Starting MDA discovery between hop " + str(ttl) + " and " + str(ttl+1))
         vertices_ttl = find_vertex_by_ttl(g, ttl)
-        while mda_continue_probing_ttl(g, ttl, nks):
+        while mda_continue_probing_ttl(g, ttl, nks) and get_total_probe_sent() < give_up_probes:
             # If the only vertex at TTL is a star, we dont need stochastic probing. Just send some flows until reach nks.
 
             if len(vertices_ttl) == 1 and ip_address[vertices_ttl[0]].startswith("*"):

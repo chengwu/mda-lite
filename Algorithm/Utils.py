@@ -161,15 +161,17 @@ def node_control_ttl(g, ttl, nks):
     missing_flows = 0
 
     vertices_ttl = find_vertex_by_ttl(g, ttl)
+    flow_dist = {}
     # No need to do node control if the only vertex is a star
     ip_address = g.vertex_properties["ip_address"]
     if len(vertices_ttl) == 1 and ip_address[vertices_ttl[0]].startswith("*"):
         return 0
     for v in vertices_ttl:
         missing_flows_v = node_control_v(g, v, ttl, nks)
+        flow_dist[v] = missing_flows_v
         if  missing_flows_v > 0:
             missing_flows += missing_flows_v
-    return missing_flows
+    return missing_flows, flow_dist
 
 def node_control_v(g, v, ttl, nks):
     ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
@@ -190,7 +192,7 @@ def unresponsive_forwarded_flows(g, v, ttl):
     return list(set(ttls_flow_ids[v][ttl]).intersection(set(black_flows_ttl)))
 
 
-def stochastic_probing(g, destination, ttl, min_flows):
+def stochastic_probing(g, destination, ttl, min_flows, missing_flows):
     # Find the maximum flow for this ttl
     max_flow_ttl = find_max_flow_id(g, ttl) + 1
 
@@ -198,6 +200,19 @@ def stochastic_probing(g, destination, ttl, min_flows):
     if min_flows < 10:
         vertices_ttl = find_vertex_by_ttl(g, ttl)
         min_flows = min_flows * len(vertices_ttl)
+
+    # Optimization. Compute the average number of flows to send given the measured distribution across
+    # the different nodes of the ttl.
+    # ttls_flow_ids = g.vertex_properties["ttls_flow_ids"]
+    # flow_dist = {v : len(ttls_flow_ids[v][ttl]) for v in find_vertex_by_ttl(g, ttl)}
+    # total_flows = sum([len(flow_dist[v]) for v in flow_dist.keys()])
+    # # Base the number to send on the worst probability basis.
+    # # 1 probe has the value probability to reach v in flow_value_dist
+    # flow_value_dist = {v : missing_flows[v] * float(flow_dist[v]) / total_flows}
+    # # Compute the number of needed probes
+    # avg_needed_probes =
+
+
 
 
     stochastic_probes = [build_probe(destination, ttl, i) for i in range(max_flow_ttl, max_flow_ttl + min_flows)]
@@ -231,10 +246,10 @@ def stochastic_and_forward(g, destination, ttl, nks):
     # If not enough flows, do some stochastic probing and Node control.
     # If the stochastic flows are the same during N rounds, stop the ttl.
     same_consecutive_stochastic_flows = 0
-    stochastic_flows = node_control_ttl(g, ttl, nks)
-    while stochastic_flows > 0:
-        stochastic_probing(g, destination, ttl, stochastic_flows)
-        next_stochastic_flows = node_control_ttl(g, ttl, nks)
+    stochastic_flows, missing_flows = node_control_ttl(g, ttl, nks)
+    while stochastic_flows > 0 and get_total_probe_sent() < give_up_probes:
+        stochastic_probing(g, destination, ttl, stochastic_flows, missing_flows)
+        next_stochastic_flows, missing_flows = node_control_ttl(g, ttl, nks)
         if stochastic_flows == next_stochastic_flows:
             same_consecutive_stochastic_flows += 1
             if same_consecutive_stochastic_flows == 30:

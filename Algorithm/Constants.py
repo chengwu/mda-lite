@@ -7,6 +7,9 @@ default_meshing_link_timeout = 3
 default_icmp_rate_limit = 50
 
 
+#give_up_probes
+give_up_probes = 30000
+
 #give_up rate
 give_up_undesponsive_rate = 0.05
 
