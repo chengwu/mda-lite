@@ -208,7 +208,6 @@ def stochastic_probing(g, destination, ttl, min_flows):
 
     update_unanswered(unanswered, ttl, False)
 
-
 def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
     while nprobe_sent < nks[hypothesis]:
         next_flow_id = find_max_flow_id(g, ttl)
@@ -226,3 +225,22 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
             # Update the graph
             g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
         nprobe_sent = nprobe_sent + nprobes
+
+
+def stochastic_and_forward(g, destination, ttl, nks):
+    # If not enough flows, do some stochastic probing and Node control.
+    # If the stochastic flows are the same during N rounds, stop the ttl.
+    same_consecutive_stochastic_flows = 0
+    stochastic_flows = node_control_ttl(g, ttl, nks)
+    while stochastic_flows > 0:
+        stochastic_probing(g, destination, ttl, stochastic_flows)
+        next_stochastic_flows = node_control_ttl(g, ttl, nks)
+        if stochastic_flows == next_stochastic_flows:
+            same_consecutive_stochastic_flows += 1
+            if same_consecutive_stochastic_flows == 30:
+                break
+        stochastic_flows = next_stochastic_flows
+
+    # Then forward these flows the the subsequent hop
+    flows = flows_to_forward(g, ttl, nks)
+    forward_flows(g, destination, ttl, flows)

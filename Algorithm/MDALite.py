@@ -228,14 +228,11 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
 
                     # Switch to MDA
                     while mda_continue_probing_ttl(g, ttl - 1, nks):
-                        stochastic_flows = node_control_ttl(g, ttl-1, nks)
-                        logging.info("Starting stochasting probing for TTL " + str(ttl-1))
-                        while stochastic_flows > 0:
-                            stochastic_probing(g, destination, ttl-1, stochastic_flows)
-                            stochastic_flows = node_control_ttl(g, ttl-1, nks)
-                        # Then forward these flows the the subsequent hop
-                        flows = flows_to_forward(g, ttl-1, nks)
-                        forward_flows(g, destination, ttl-1, flows)
+                        stochastic_and_forward(g, destination, ttl - 1, nks)
+                        subsequent_flows = find_flows(g, ttl)
+                        if len(black_flows[ttl]) * give_up_undesponsive_rate > len(subsequent_flows) > 0:
+                            logging.info("Response rate too low. Giving up. Can be due to routing configuration error.")
+                            return
                     ttl_finished.append(ttl)
 
     # Final reconnection in case we have weird stuff

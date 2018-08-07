@@ -20,6 +20,7 @@ elif platform.system() == "Windows":
     from scapy.all import L3dnetSocket
     config.conf.L3socket = L3dnetSocket
 
+
 # from scapy.all import *
 # from Maths.Bounds import *
 # from Packets.Utils import *
@@ -160,7 +161,6 @@ def main(argv):
     with_ip2as = False
     only_alias = False
     log_level = "INFO"
-
     meshing_flows = default_check_meshing_flows
 
     # algorithm = "mda"
@@ -230,11 +230,12 @@ def main(argv):
             meshing_flows = int(arg)
         elif opt in ("-m", "--algorithm"):
             algorithm = arg
-    logging.basicConfig(level=getattr(logging, log_level.upper()))
     if len(args) != 1:
         print usage
         sys.exit(2)
     destination  = args[0]
+    logging.basicConfig(filename="MDA_log.log", level=getattr(logging, log_level.upper()), filemode="w")
+    logging.getLogger().addHandler(logging.StreamHandler())
     diffs = None
 
     if input_file != "":

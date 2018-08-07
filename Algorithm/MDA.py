@@ -39,23 +39,9 @@ def mda(g, destination, nks):
                 # 1 for nb successor, +1 for index in table nks
                 probe_until_nk_mda(g, destination, ttl+1, 0, 1+1, nks)
                 break
-            # If not enough flows, do some stochastic probing and Node control.
-            # If the stochastic flows are the same during N rounds, stop the ttl.
-            same_consecutive_stochastic_flows = 0
-            stochastic_flows = node_control_ttl(g, ttl, nks)
-            while stochastic_flows > 0:
-                stochastic_probing(g, destination, ttl, stochastic_flows)
-                next_stochastic_flows = node_control_ttl(g, ttl, nks)
-                if stochastic_flows == next_stochastic_flows:
-                    same_consecutive_stochastic_flows += 1
-                    if same_consecutive_stochastic_flows == 30:
-                        break
-                stochastic_flows = next_stochastic_flows
 
-            # Then forward these flows the the subsequent hop
-            flows = flows_to_forward(g, ttl, nks)
-            forward_flows(g, destination, ttl, flows)
-            # Give up if the response rate is too low
+            stochastic_and_forward(g, destination, ttl, nks)
+            # Give up if the response rate is too low. This is common when configuration or routing error.
             subsequent_flows = find_flows(g, ttl+1)
             if len(black_flows[ttl+1]) * give_up_undesponsive_rate > len(subsequent_flows) > 0:
                 logging.info("Response rate too low. Giving up. Can be due to routing configuration error.")
