@@ -1,11 +1,13 @@
 # This file contains step of algorithms that are/could be shared by the different algorithms.
 
 
-from Packets.Utils import *
-from Graph.Operations import *
-from Constants import *
-
 import logging
+import time
+from Constants import *
+from Graph.Operations import *
+from scapy.sendrecv import sr
+from Network.Config import default_interface
+from Network.Packets.Utils import *
 
 def execute_phase1(g, destination, nks):
     has_found_longest_path_to_destination = False
@@ -76,7 +78,7 @@ def generate_probes(nprobes, destination, ttl, starting_flow_id):
 
 def send_probes(probes, timeout, verbose = False):
     before = time.time()
-    replies, answered = sr(probes, timeout=timeout, verbose=verbose)
+    replies, answered = sr(probes, timeout=timeout, verbose=verbose, iface=default_interface)
     after =  time.time()
     increment_probe_sent(len(probes))
     increment_replies(len(replies.res))

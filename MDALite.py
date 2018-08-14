@@ -1,7 +1,9 @@
 #!/usr/bin/env python
-import logging
 import getopt
+import time
 from scapy import config
+from Network.Config import set_ip_version
+
 config.Conf.load_layers.remove("x509")
 
 ###### PLATFORM RELATED SOCKETS########
@@ -12,14 +14,13 @@ if platform.system() == "Darwin":
     from scapy.all import L3dnetSocket
     config.conf.L3socket = L3dnetSocket
 elif platform.system() == "Linux":
-    from scapy.all import L3RawSocket
-    config.conf.L3socket = L3RawSocket
+    from scapy.all import L3PacketSocket
+    config.conf.L3socket = L3PacketSocket
 elif platform.system() == "Windows":
     config.conf.use_pcap = True
     config.conf.use_dnet = True
     from scapy.all import L3dnetSocket
     config.conf.L3socket = L3dnetSocket
-
 
 # from scapy.all import *
 # from Maths.Bounds import *
@@ -144,6 +145,7 @@ def diff(old_g, g, remapping_probes):
 
 
 def main(argv):
+
     origin = time.time()
     # default values
     source_name = ""
@@ -178,9 +180,10 @@ def main(argv):
                 '-R --only-alias do only alias resolution (NOT WORKING ATM)\n'\
                 '-l --log-level set the logging level (Python standard values allowed)\n'\
                 '-f --meshing-flows set the number of flows to send back/forward to detect meshing (minimum is 2)\n'\
-                '-m --algorithm Choose the algorithm. Possible algorithms are (mda, mda-lite)'
+                '-m --algorithm Choose the algorithm. Possible algorithms are (mda, mda-lite)\n'\
+                '-6 --ipv6 Use IPv6'
     try:
-        opts, args = getopt.getopt(argv, "ho:i:c:b:sS:aARl:f:m:", ["help","ofile=",
+        opts, args = getopt.getopt(argv, "ho:i:c:b:sS:aARl:f:m:6", ["help","ofile=",
                                                                 "ifile=",
                                                                 "vertex-confidence=",
                                                                 "edge-budget=",
@@ -191,7 +194,8 @@ def main(argv):
                                                                 "only-alias",
                                                                 "log-level",
                                                                 "meshing-flows",
-                                                                "algorithm"])
+                                                                "algorithm",
+                                                                "ipv6"])
     except getopt.GetoptError:
         print usage
         sys.exit(2)
@@ -230,6 +234,9 @@ def main(argv):
             meshing_flows = int(arg)
         elif opt in ("-m", "--algorithm"):
             algorithm = arg
+        elif opt in ("-6", "--ipv6"):
+            set_ip_version("IPv6")
+
     if len(args) != 1:
         print usage
         sys.exit(2)

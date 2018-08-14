@@ -4,6 +4,8 @@ import logging
 from graph_tool.all import *
 from Graph.LoadBalancer import *
 from Algorithm.Constants import *
+from Network.Config import *
+
 
 max_ttl = 30
 
@@ -37,7 +39,11 @@ def init_graph(destination):
     g.edge_properties["inferred"] = inferred
     g.edge_properties["edge_flows"] = edge_flows
     source = g.add_vertex()
-    ip_address[source] = "127.0.0.1"
+    ip_version = get_ip_version()
+    if ip_version == "IPv4":
+        ip_address[source] = default_ip_address
+    elif ip_version == "IPv6":
+        ip_address[source] = default_ip_address_6
     ttls_flow_ids[source] = {}
     ttls_flow_ids[source][0] = []
     for i in range (1, 5000):
