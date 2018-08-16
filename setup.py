@@ -9,6 +9,6 @@ setup(name='Multilevel MDA-Lite Paris Traceroute',
       license='MIT',
       packages=['Alias', 'Graph', 'Maths', 'Packets'],
       install_requires=[
-          'scapy',
+          'scapy', 'netifaces'
       ],
       zip_safe=False)
