@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name='Multilevel MDA-Lite Paris Traceroute',
       version='0.1',
@@ -7,7 +7,7 @@ setup(name='Multilevel MDA-Lite Paris Traceroute',
       author='Kevin Vermeulen,',
       author_email='kevinmylinh.vermeulen@gmail.com',
       license='MIT',
-      packages=['Alias', 'Graph', 'Maths', 'Packets'],
+      packages=find_packages(),
       install_requires=[
           'scapy', 'netifaces'
       ],
