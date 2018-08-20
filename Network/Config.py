@@ -20,11 +20,11 @@ for interface in interfaces:
         continue
     if ni.ifaddresses(interface).has_key(AF_INET):
         if ni.ifaddresses(interface)[AF_INET][0].has_key('addr'):
-            default_interface = interface
-            default_ip_address = ni.ifaddresses(default_interface)[AF_INET][0]['addr']
+            default_interface = str(interface)
+            default_ip_address = str(ni.ifaddresses(default_interface)[AF_INET][0]['addr'])
         if ni.ifaddresses(interface).has_key(AF_INET6):
             if ni.ifaddresses(interface)[AF_INET6][0].has_key('addr'):
-                default_ip_address_6 = ni.ifaddresses(default_interface)[AF_INET6][0]['addr']
+                default_ip_address_6 = str(ni.ifaddresses(default_interface)[AF_INET6][0]['addr'])
                 break
 
 print "default IP interface: " + default_interface

@@ -4,8 +4,7 @@ import copy
 from Alias.Mpls import *
 from Graph.Operations import *
 from Network.Packets.Utils import *
-from scapy.sendrecv import sr
-
+from Algorithm.Utils import send_probes
 
 midar_unusable_treshold = 0.75
 midar_degenerate_treshold = 0.25
@@ -14,7 +13,7 @@ midar_negative_delta_treshold = 0.5
 midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
-default_alias_icmp_probe_number = 20
+default_alias_icmp_probe_number = 5
 default_pre_estimation_serie = 2000
 default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
@@ -58,7 +57,8 @@ def send_fingerprinting_probes(g):
             probe = build_icmp_echo_request_probe(dst_ip)
             fingerprinting_probes.append(probe)
 
-    replies, unanswered = sr(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
+    replies, unanswered, before, after = send_probes(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
+    # replies, unanswered = sr(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
     return replies, unanswered
 
 def update_finger_printing(g, echo_replies):
@@ -154,9 +154,7 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                     flow_id = ttls_flow_ids[v][ttl][0]
                     alias_udp_probe = build_probe(destination, ttl, flow_id)
                     alias_probes.append(alias_udp_probe)
-            before = time.time()
-            replies, unanswered = sr(alias_probes, timeout=default_elimination_alias_timeout, verbose = False)
-            after = time.time()
+            replies, unanswered, before, after = send_probes(alias_probes, timeout=default_elimination_alias_timeout, verbose = False)
             if len(replies) == 0:
                 continue
             for probe, reply in replies:

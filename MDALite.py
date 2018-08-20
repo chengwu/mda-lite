@@ -245,6 +245,10 @@ def main(argv):
     logging.getLogger().addHandler(logging.StreamHandler())
     diffs = None
 
+    ip_probes_sent = 0
+    ip_useful_probes = 0
+    router_probes_sent = 0
+    router_useful_probes = 0
     if input_file != "":
         init_black_flows()
         # Replay a measurement with the help of the previous measure.
@@ -268,7 +272,8 @@ def main(argv):
             elif algorithm == "mda":
                 # This is a classic MDA.
                 mda(g, destination, nk99)
-
+            ip_probes_sent = get_total_probe_sent()
+            ip_useful_probes = get_total_replies()
             # g = load_graph("test.xml")
             # llb = extract_load_balancers(g)
             clean_stars(g)
@@ -292,6 +297,8 @@ def main(argv):
                 save_routers(aliases, g)
                 remove_self_loop_destination(g, destination)
 
+                router_probes_sent = get_total_probe_sent() - ip_probes_sent
+                router_useful_probes = get_total_replies() - ip_useful_probes
             if with_ip2as:
                 logging.info("Starting phase 5 : proceeding to ip2as resolution")
                 #g = load_graph("router_level_test.xml")
@@ -300,22 +307,23 @@ def main(argv):
 
     end_time = time.time() - origin
 
-    print "Duration of measurement : " + str(end_time) + " seconds"
-    print "Found a graph with " + str(len(g.get_vertices())) +" vertices and " + str(len(g.get_edges())) + " edges"
-    print "Total probe sent : " + str(get_total_probe_sent())
-    print "Total replies got : " + str(get_total_replies())
-    print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g))  + "%"
-    print "Phase 3 finished"
+    # Save some globals in the graphs (probes sent).
 
+    g_ip_probes_sent = g.new_graph_property("int")
+    g_ip_probes_sent[g] = ip_probes_sent
+    g.graph_properties["ip_probes_sent"] = g_ip_probes_sent
 
-    g_probe_sent = g.new_graph_property("int")
-    g_probe_sent[g] = get_total_probe_sent()
-    g.graph_properties["probe_sent"] = g_probe_sent
+    g_router_probes_sent = g.new_graph_property("int")
+    g_router_probes_sent[g] = router_probes_sent
+    g.graph_properties["router_probes_sent"] = g_router_probes_sent
 
+    g_ip_useful_probes = g.new_graph_property("int")
+    g_ip_useful_probes[g] = ip_useful_probes
+    g.graph_properties["useful_probes"] = g_ip_useful_probes
 
-    g_useful_probes = g.new_graph_property("int")
-    g_useful_probes[g] = get_total_replies()
-    g.graph_properties["useful_probes"] = g_useful_probes
+    g_router_useful_probes = g.new_graph_property("int")
+    g_router_useful_probes[g] = router_useful_probes
+    g.graph_properties["useful_probes"] = g_router_useful_probes
 
     g_time = g.new_graph_property("double")
     g_time[g] = origin
@@ -324,6 +332,18 @@ def main(argv):
     g_end_time = g.new_graph_property("double")
     g_end_time[g] = end_time
     g.graph_properties["end_time"] = g_end_time
+
+
+
+    print "Duration of measurement : " + str(end_time) + " seconds"
+    print "Found a graph with " + str(len(g.get_vertices())) + " vertices and " + str(len(g.get_edges())) + " edges"
+    print "Total probes sent for ip traceroute: " + str(ip_probes_sent)
+    print "Total replies received for ip traceroute: " + str(ip_useful_probes)
+    print "Total probes sent for alias resolution: " + str(router_probes_sent)
+    print "Total replies received for alias resolution: " + str(router_useful_probes)
+    print "Percentage of edges inferred : " + str(get_percentage_of_inferred(g)) + "%"
+    print "Phase 3 finished"
+
 
     if save_flows_infos:
         # Get source info
