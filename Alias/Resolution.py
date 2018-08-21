@@ -14,9 +14,9 @@ midar_negative_delta_treshold = 0.5
 midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
-default_alias_icmp_probe_number = 20
+default_alias_icmp_probe_number = 30
 default_pre_estimation_serie = 2000
-default_number_mbt = 2
+default_number_mbt = 10
 default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
 
