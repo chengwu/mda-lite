@@ -5,6 +5,7 @@ from Alias.Mpls import *
 from Graph.Operations import *
 from Network.Packets.Utils import *
 from Algorithm.Utils import send_probes
+from Algorithm.Utils import get_total_probe_sent, get_total_replies
 
 midar_unusable_treshold = 0.75
 midar_degenerate_treshold = 0.25
@@ -423,8 +424,14 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
     ip_address = g.vertex_properties["ip_address"]
     mpls = g.vertex_properties["mpls"]
     elimination_to_remove = set()
+
+    # Results per round.
+    results_per_round = {}
+
     if len(elimination_stage_candidates) > 0:
         for k in range(0, nb_round):
+            probes_sent_before_round = get_total_probe_sent()
+            replies_received_before_round = get_total_replies()
             logging.debug(str(k) + " on " + str(nb_round-1) + " rounds of elimination stage...")
             logging.debug(str(len(elimination_stage_candidates)) + " subgroups of ips to test for elimination stage")
             l_l_subgraphs = []
@@ -507,14 +514,26 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                 #
                 #        # print "Elimination of candidate : " + str(candidate2)
                 #        # print str(elimination_stage_candidates)
+            probes_sent_after_round = get_total_probe_sent()
+            replies_received_after_round = get_total_replies()
+            results_per_round[k] = (elimination_stage_candidates ,
+                                    probes_sent_after_round - probes_sent_before_round,
+                                    replies_received_after_round - replies_received_before_round)
+        for round, (elimination_stage_candidates_per_round, probes_sent, replies_received) in results_per_round.iteritems():
+            for elimination_candidate, candidates in elimination_stage_candidates_per_round.iteritems():
+                candidates.discard(elimination_candidate)
+                for candidate in candidates:
+                    if candidate != elimination_candidate:
+                        logging.debug(ip_address[elimination_candidate] + " and " + ip_address[
+                            candidate] + " passed the round "+ str(round) + " of elimination stage!")
 
-        for elimination_candidate, candidates in elimination_stage_candidates.iteritems():
-            candidates.discard(elimination_candidate)
-            for candidate in candidates :
-                if candidate != elimination_candidate:
-                    logging.debug(ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!")
+        # for elimination_candidate, candidates in elimination_stage_candidates.iteritems():
+        #     candidates.discard(elimination_candidate)
+        #     for candidate in candidates :
+        #         if candidate != elimination_candidate:
+        #             logging.debug(ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!")
     #print "After elimination... : " + str(elimination_stage_candidates)
-    return elimination_stage_candidates, full_alias_candidates
+    return results_per_round, full_alias_candidates
 
 
 def remove_self_loop_destination(g, destination):
@@ -537,6 +556,21 @@ def router_graph(aliases, g):
     return g
 
 
+def save_routers_round(round, aliases, probes_sent, replies_received, r_g):
+    ip_address = r_g.vertex_properties["ip_address"]
+    routers = []
+    for v1, v1_aliases in aliases.iteritems():
+        router = set()
+        router.add(ip_address[v1])
+        for v1_alias in v1_aliases:
+            router.add(ip_address[v1_alias])
+        routers.append(list(router))
+
+
+    routers_property = r_g.new_graph_property("python::object")
+    routers_property[r_g] = [routers, probes_sent, replies_received]
+    r_g.graph_properties["routers_round_"+str(round)] = routers_property
+
 def save_routers(aliases, r_g):
     ip_address = r_g.vertex_properties["ip_address"]
     routers = []
@@ -547,11 +581,10 @@ def save_routers(aliases, r_g):
             router.add(ip_address[v1_alias])
         routers.append(list(router))
 
+
     routers_property = r_g.new_graph_property("python::object")
     routers_property[r_g] = routers
     r_g.graph_properties["routers"] = routers_property
-
-
 
 if __name__ == "__main__" :
     time_serie1 = [[1522017310.698866, 1522017310.759052, 45777], [1522017310.761394, 1522017310.887182, 45782], [1522017310.891868, 1522017310.974049, 45791], [1522017311.087585, 1522017311.144181, 45800], [1522017311.146305, 1522017311.208234, 45807], [1522017311.211479, 1522017311.297533, 45812], [1522017311.421824, 1522017311.48208, 45832], [1522017311.485019, 1522017311.594683, 45837], [1522017311.597857, 1522017311.72943, 45848], [1522017311.935086, 1522017311.992369, 45863], [1522017311.995046, 1522017312.058773, 45875], [1522017312.063074, 1522017312.283871, 45881], [1522017312.405538, 1522017312.552792, 45899], [1522017312.555223, 1522017312.613298, 45908], [1522017312.616858, 1522017312.687449, 45915], [1522017312.977399, 1522017313.039613, 45931], [1522017313.044398, 1522017313.131288, 45940], [1522017313.134536, 1522017313.20177, 45944], [1522017313.322574, 1522017313.385278, 45956], [1522017313.388336, 1522017313.450243, 45964], [1522017313.4552, 1522017313.543724, 45970], [1522017313.662402, 1522017313.718402, 45984], [1522017313.720806, 1522017313.777442, 45988], [1522017313.781156, 1522017313.844563, 45994], [1522017314.020803, 1522017314.077421, 46012], [1522017314.080178, 1522017314.151039, 46017], [1522017314.154903, 1522017314.219311, 46023], [1522017314.33768, 1522017314.40725, 46031], [1522017314.409904, 1522017314.468005, 46037], [1522017314.471469, 1522017314.538047, 46045], [1522017314.683387, 1522017314.78567, 46065], [1522017314.788094, 1522017314.896561, 46071], [1522017314.899978, 1522017315.008034, 46079], [1522017315.183507, 1522017315.240655, 46094], [1522017315.243339, 1522017315.329069, 46101], [1522017315.332381, 1522017315.395747, 46105], [1522017315.521421, 1522017315.657785, 46120], [1522017315.660391, 1522017315.753283, 46130], [1522017315.756383, 1522017315.889357, 46135], [1522017316.004589, 1522017316.060325, 46152], [1522017316.062946, 1522017316.171537, 46159], [1522017316.175554, 1522017316.238951, 46164], [1522017316.350817, 1522017316.409786, 46177], [1522017316.412941, 1522017316.471497, 46182], [1522017316.474725, 1522017316.532457, 46189], [1522017316.649757, 1522017316.704355, 46205], [1522017316.70697, 1522017316.769681, 46210], [1522017316.773398, 1522017316.842047, 46217], [1522017316.948229, 1522017317.007123, 46229], [1522017317.00978, 1522017317.124128, 46235], [1522017317.128334, 1522017317.194094, 46242], [1522017317.308686, 1522017317.363969, 46251], [1522017317.367396, 1522017317.480462, 46255], [1522017317.484892, 1522017317.639786, 46266], [1522017317.76884, 1522017317.874718, 46283], [1522017317.877088, 1522017317.937662, 46289], [1522017317.941086, 1522017318.006205, 46293], [1522017318.106888, 1522017318.185611, 46304], [1522017318.188148, 1522017318.24754, 46309], [1522017318.250988, 1522017318.370831, 46319]]
@@ -568,5 +601,12 @@ if __name__ == "__main__" :
     time_serie2 = [[1521765740.677916, 1521765740.987718, 51208], [1521765740.989298, 1521765741.214548, 51265], [1521765741.215242, 1521765741.504743, 51283], [1521765741.505357, 1521765741.785454, 51291], [1521765741.786376, 1521765741.889876, 51333], [1521765741.909854, 1521765742.125637, 51346], [1521765742.12663, 1521765742.384633, 51391], [1521765742.394436, 1521765742.738914, 51455], [1521765742.744668, 1521765743.016611, 51506], [1521765743.01741, 1521765743.315387, 51544], [1521765743.317169, 1521765743.585733, 51592], [1521765743.588204, 1521765743.705631, 51647], [1521765743.707362, 1521765743.925208, 51664], [1521765743.925994, 1521765744.130475, 51703], [1521765744.131409, 1521765744.37247, 51716], [1521765744.376166, 1521765744.642112, 51748], [1521765744.643104, 1521765744.768343, 51765], [1521765744.769261, 1521765744.875911, 51777], [1521765744.876553, 1521765745.186713, 51794], [1521765745.188376, 1521765745.270207, 51821], [1521765745.271241, 1521765745.480966, 51833], [1521765745.492889, 1521765745.824302, 51876], [1521765745.832986, 1521765746.005268, 51899], [1521765746.010414, 1521765746.135123, 51935], [1521765746.139311, 1521765746.225639, 51948], [1521765746.250071, 1521765746.397855, 51955], [1521765746.39869, 1521765746.524796, 51979], [1521765746.525592, 1521765746.652564, 51986], [1521765746.653889, 1521765746.740783, 51991], [1521765746.741627, 1521765746.812151, 52014]]
     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
     assert(not pass_mbt)
+
+    g = load_graph("test2.xml")
+    dump_routers_round(-1, g)
+    ip_ids = g.vertex_properties["ip_ids"]
+    print ip_ids[find_vertex_by_ip(g, "157.240.43.200")]
+    print ip_ids[find_vertex_by_ip(g, "157.240.43.196")]
+    print ip_ids[find_vertex_by_ip(g, "157.240.43.192")]
 
 

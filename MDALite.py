@@ -3,6 +3,7 @@ import getopt
 import time
 from scapy import config
 from Network.Config import set_ip_version
+import copy
 
 config.Conf.load_layers.remove("x509")
 
@@ -35,15 +36,27 @@ from Algorithm.MDALite import *
 from Algorithm.MDA import *
 
 def resolve_aliases(destination, llb, g):
-    aliases = {}
 
+    aliases = {}
+    for i in range(0, default_number_mbt):
+        aliases[i] = [{}, 0, 0]
     # Get infos on fingerprinting
     echo_replies, unanswered = send_fingerprinting_probes(g)
     update_finger_printing(g, echo_replies)
 
-
     # Maintain thwo IP-ID time serie. One with no negative deltas and one with negative deltas.
     ip_ids = g.vertex_properties["ip_ids"]
+
+    aliases_just_ip_traceroute = [{}, get_total_probe_sent(), get_total_replies()]
+
+    for lb in llb:
+        # Filter the ttls where there are multiple predecessors
+        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
+            vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+            ###################### Use already collected IP-ID to fast discarding ##################
+            time_series_by_vertices = {v: ip_ids[v] for v in vertices_by_ttl}
+            estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
+            aliases_just_ip_traceroute[0].update(estimation_stage_candidates)
 
     for lb in llb:
         # Filter the ttls where there are multiple predecessors
@@ -54,20 +67,26 @@ def resolve_aliases(destination, llb, g):
             ###################### Use already collected IP-ID to fast discarding ##################
             time_series_by_vertices = { v : ip_ids[v] for v in vertices_by_ttl}
             estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
-
-
             ###################### Use MIDAR alias resolution technique #####################
             # Elimination stage
             #elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
-            corroboration_stage_candidates, full_alias_candidates =  elimination_stage(g, estimation_stage_candidates, full_alias_candidates,
+            aliases_per_round, full_alias_candidates =  elimination_stage(g, estimation_stage_candidates, full_alias_candidates,
                                                                                      ttl, destination, None, default_number_mbt)
             # Elimination stage
             # corroboration_stage_candidates, full_alias_candidates = elimination_stage(g, elimination_stage_candidates, full_alias_candidates,
             #                                                                           ttl, destination, None, default_number_mbt - min_nb_serie)
             # Do not do the corroboratino stage as the subgraphs are already small in elimination stage
-            aliases.update(corroboration_stage_candidates)
+
+            # Update what's found without adding probing.
+
+            # Compute what's found by round
+            if len(aliases_per_round) > 0:
+                for i in range(0, default_number_mbt):
+                    aliases[i][0].update(aliases_per_round[i][0])
+                    aliases[i][1] += aliases_per_round[i][1]
+                    aliases[i][2] += aliases_per_round[i][2]
             ####################### End of MIDAR #########################
-    return aliases
+    return aliases_just_ip_traceroute, aliases
 
 def reconnect_stars(g):
     # If some vertices are discovered at a given hop with
@@ -291,14 +310,20 @@ def main(argv):
             # copy_g.vertex_properties["interfaces"] = interfaces
             llb = extract_load_balancers(g)
             before_alias = time.time()
-            aliases = resolve_aliases(destination, llb, g)
+            aliases_just_ip_traceroute, aliases_per_round = resolve_aliases(destination, llb, g)
             print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
             #r_g = router_graph(aliases, r_g)
-            save_routers(aliases, g)
-            remove_self_loop_destination(g, destination)
-
             router_probes_sent = get_total_probe_sent() - ip_probes_sent
             router_useful_probes = get_total_replies() - ip_useful_probes
+            save_routers_round(-1, aliases_just_ip_traceroute[0], aliases_just_ip_traceroute[1], aliases_just_ip_traceroute[2], g)
+            # dump_routers_round(-1, g)
+            for round, (aliases, probes_sent, replies_received) in aliases_per_round.iteritems():
+                save_routers_round(round, aliases, probes_sent, replies_received, g)
+                # dump_routers_round(round, g)
+            save_routers(aliases_per_round[default_number_mbt - 1][0], g)
+            remove_self_loop_destination(g, destination)
+
+
         if with_ip2as:
             logging.info("Starting phase 5 : proceeding to ip2as resolution")
             #g = load_graph("router_level_test.xml")
@@ -360,11 +385,6 @@ def main(argv):
     # Dump txt results in any case
     dump_results(g, with_alias_resolution, with_ip2as, destination)
 
-    # if with_alias_resolution:
-    #     dump_routers(r_g)
-
-    #full_mda_g = load_graph("/home/osboxes/CLionProjects/fakeRouteC++/resources/ple2.planet-lab.eu_125.155.82.17.xml")
-    #graph_topology_draw(full_mda_g)
 if __name__ == "__main__":
 
     main(sys.argv[1:])
