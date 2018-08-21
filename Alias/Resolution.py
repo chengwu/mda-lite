@@ -5,7 +5,7 @@ from Alias.Mpls import *
 from Graph.Operations import *
 from Network.Packets.Utils import *
 from Algorithm.Utils import send_probes
-from Algorithm.Utils import get_total_probe_sent, get_total_replies
+from Algorithm.Utils import get_total_probe_sent, get_total_replies, vertices_dict_to_int_dict, int_dict_to_vertices_dict
 
 midar_unusable_treshold = 0.75
 midar_degenerate_treshold = 0.25
@@ -428,6 +428,7 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
     # Results per round.
     results_per_round = {}
 
+    int_results_per_round = {}
     if len(elimination_stage_candidates) > 0:
         for k in range(0, nb_round):
             probes_sent_before_round = get_total_probe_sent()
@@ -516,10 +517,11 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                 #        # print str(elimination_stage_candidates)
             probes_sent_after_round = get_total_probe_sent()
             replies_received_after_round = get_total_replies()
-            results_per_round[k] = (elimination_stage_candidates ,
+            results_per_round[k] = elimination_stage_candidates
+            int_results_per_round[k] = (vertices_dict_to_int_dict(elimination_stage_candidates),
                                     probes_sent_after_round - probes_sent_before_round,
                                     replies_received_after_round - replies_received_before_round)
-        for round, (elimination_stage_candidates_per_round, probes_sent, replies_received) in results_per_round.iteritems():
+        for round, elimination_stage_candidates_per_round in results_per_round.iteritems():
             for elimination_candidate, candidates in elimination_stage_candidates_per_round.iteritems():
                 candidates.discard(elimination_candidate)
                 for candidate in candidates:
@@ -527,13 +529,16 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
                         logging.debug(ip_address[elimination_candidate] + " and " + ip_address[
                             candidate] + " passed the round "+ str(round) + " of elimination stage!")
 
+        for round, (elimination_stage_candidates_per_round, probes_sent, replies_received) in int_results_per_round.iteritems():
+            for elimination_candidate, candidates in elimination_stage_candidates_per_round.iteritems():
+                candidates.discard(elimination_candidate)
         # for elimination_candidate, candidates in elimination_stage_candidates.iteritems():
         #     candidates.discard(elimination_candidate)
         #     for candidate in candidates :
         #         if candidate != elimination_candidate:
         #             logging.debug(ip_address[elimination_candidate] + " and " + ip_address[candidate] + " passed the elimination stage!")
     #print "After elimination... : " + str(elimination_stage_candidates)
-    return results_per_round, full_alias_candidates
+    return int_results_per_round, full_alias_candidates
 
 
 def remove_self_loop_destination(g, destination):
@@ -602,11 +607,7 @@ if __name__ == "__main__" :
     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
     assert(not pass_mbt)
 
-    g = load_graph("test2.xml")
+    g = load_graph("test.xml")
     dump_routers_round(-1, g)
-    ip_ids = g.vertex_properties["ip_ids"]
-    print ip_ids[find_vertex_by_ip(g, "157.240.43.200")]
-    print ip_ids[find_vertex_by_ip(g, "157.240.43.196")]
-    print ip_ids[find_vertex_by_ip(g, "157.240.43.192")]
 
 

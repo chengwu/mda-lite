@@ -552,6 +552,13 @@ def dump_results(g, with_alias_resolution, with_ip_to_as, destination):
     if with_alias_resolution:
         dump_routers(g)
 
+def dump_routers_round(round, r_g):
+    routers_round = r_g.graph_properties["routers_round_"+ str(round)]
+    print "Routers found for round "+str(round) +": "
+    for router in routers_round[0]:
+        print router
+    print "Probes sent for round " + str(round) + ": " +str(routers_round[1])
+    print "Replies received for round " + str(round) + ": " + str(routers_round[2])
 
 def dump_routers(r_g):
     routers = r_g.graph_properties["routers"]

@@ -35,6 +35,7 @@ from IP2AS.ip2as import *
 from Algorithm.MDALite import *
 from Algorithm.MDA import *
 
+
 def resolve_aliases(destination, llb, g):
 
     aliases = {}
@@ -49,14 +50,14 @@ def resolve_aliases(destination, llb, g):
 
     aliases_just_ip_traceroute = [{}, get_total_probe_sent(), get_total_replies()]
 
-    for lb in llb:
-        # Filter the ttls where there are multiple predecessors
-        for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
-            vertices_by_ttl = find_vertex_by_ttl(g, ttl)
-            ###################### Use already collected IP-ID to fast discarding ##################
-            time_series_by_vertices = {v: ip_ids[v] for v in vertices_by_ttl}
-            estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
-            aliases_just_ip_traceroute[0].update(estimation_stage_candidates)
+    # for lb in llb:
+    #     # Filter the ttls where there are multiple predecessors
+    #     for ttl, nint in sorted(lb.get_ttl_vertices_number().iteritems()):
+    #         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
+    #         ###################### Use already collected IP-ID to fast discarding ##################
+    #         time_series_by_vertices = {v: ip_ids[v] for v in vertices_by_ttl}
+    #         estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
+    #         aliases_just_ip_traceroute[0].update(estimation_stage_candidates)
 
     for lb in llb:
         # Filter the ttls where there are multiple predecessors
@@ -67,6 +68,7 @@ def resolve_aliases(destination, llb, g):
             ###################### Use already collected IP-ID to fast discarding ##################
             time_series_by_vertices = { v : ip_ids[v] for v in vertices_by_ttl}
             estimation_stage_candidates, full_alias_candidates = pre_estimation_stage(g, time_series_by_vertices)
+            aliases_just_ip_traceroute[0].update(vertices_dict_to_int_dict(estimation_stage_candidates))
             ###################### Use MIDAR alias resolution technique #####################
             # Elimination stage
             #elimination_stage_candidates, full_alias_candidates = estimation_stage(g, vertices_by_ttl, ttl, destination)
@@ -310,17 +312,20 @@ def main(argv):
             # copy_g.vertex_properties["interfaces"] = interfaces
             llb = extract_load_balancers(g)
             before_alias = time.time()
-            aliases_just_ip_traceroute, aliases_per_round = resolve_aliases(destination, llb, g)
+            int_aliases_just_ip_traceroute, int_aliases_per_round = resolve_aliases(destination, llb, g)
             print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
             #r_g = router_graph(aliases, r_g)
+            aliases_just_ip_traceroute = int_dict_to_vertices_dict(int_aliases_just_ip_traceroute[0], g)
             router_probes_sent = get_total_probe_sent() - ip_probes_sent
             router_useful_probes = get_total_replies() - ip_useful_probes
-            save_routers_round(-1, aliases_just_ip_traceroute[0], aliases_just_ip_traceroute[1], aliases_just_ip_traceroute[2], g)
-            # dump_routers_round(-1, g)
-            for round, (aliases, probes_sent, replies_received) in aliases_per_round.iteritems():
+            save_routers_round(-1, aliases_just_ip_traceroute, int_aliases_just_ip_traceroute[1], int_aliases_just_ip_traceroute[2], g)
+            dump_routers_round(-1, g)
+            for round, (int_aliases, probes_sent, replies_received) in int_aliases_per_round.iteritems():
+                aliases = int_dict_to_vertices_dict(int_aliases, g)
                 save_routers_round(round, aliases, probes_sent, replies_received, g)
-                # dump_routers_round(round, g)
-            save_routers(aliases_per_round[default_number_mbt - 1][0], g)
+                dump_routers_round(round, g)
+
+            save_routers(int_dict_to_vertices_dict(int_aliases_per_round[default_number_mbt - 1][0], g), g)
             remove_self_loop_destination(g, destination)
 
 

@@ -261,3 +261,19 @@ def stochastic_and_forward(g, destination, ttl, nks):
     # Then forward these flows the the subsequent hop
     flows = flows_to_forward(g, ttl, nks)
     forward_flows(g, destination, ttl, flows)
+
+
+def vertices_dict_to_int_dict(d):
+    int_dict = {}
+    for key, values in d.iteritems():
+        int_values = set(int(v) for v in values)
+        int_dict[int(key)] = int_values
+
+    return int_dict
+
+def int_dict_to_vertices_dict(d, g):
+    vertices_dict = {}
+    for key, values in d.iteritems():
+        v_values = set(g.vertex(v) for v in values)
+        vertices_dict[g.vertex(key)] = v_values
+    return vertices_dict
