@@ -13,7 +13,7 @@ midar_negative_delta_treshold = 0.5
 midar_discard_velocity_treshold = 100
 
 default_alias_timeout = 1.5
-default_alias_icmp_probe_number = 5
+default_alias_icmp_probe_number = 20
 default_pre_estimation_serie = 2000
 default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
@@ -57,7 +57,7 @@ def send_fingerprinting_probes(g):
             probe = build_icmp_echo_request_probe(dst_ip)
             fingerprinting_probes.append(probe)
 
-    replies, unanswered, before, after = send_probes(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
+    replies, unanswered, before = send_probes(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
     # replies, unanswered = sr(fingerprinting_probes, timeout=default_fingerprinting_timeout, verbose=False)
     return replies, unanswered
 
@@ -154,21 +154,21 @@ def send_parallel_alias_probes(g, l_l_vertices, ttl, destination):
                     flow_id = ttls_flow_ids[v][ttl][0]
                     alias_udp_probe = build_probe(destination, ttl, flow_id)
                     alias_probes.append(alias_udp_probe)
-            replies, unanswered, before, after = send_probes(alias_probes, timeout=default_elimination_alias_timeout, verbose = False)
+            replies, unanswered, before = send_probes(alias_probes, timeout=default_elimination_alias_timeout, verbose = False)
             if len(replies) == 0:
                 continue
             for probe, reply in replies:
                 reply_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
-                alias_result = [before, after, ip_id_reply, ip_id_probe]
+                alias_result = [before, reply.time, ip_id_reply, ip_id_probe]
 
                 #logging.debug("Flow changed during measurement! Or it is may be not a per-flow load-balancer...")
                 update_graph(g, reply_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                 other_v = find_vertex_by_ip(g, reply_ip)
                 if not time_series_by_vertices.has_key(other_v):
-                    time_series_by_vertices[other_v] = [[before, after, ip_id_reply, ip_id_probe]]
+                    time_series_by_vertices[other_v] = [[before, reply.time, ip_id_reply, ip_id_probe]]
                 else:
-                    time_series_by_vertices[other_v].append([before, after, ip_id_reply, ip_id_probe])
+                    time_series_by_vertices[other_v].append([before, reply.time, ip_id_reply, ip_id_probe])
         if i %10 == 0:
             logging.debug(str(i+1) + " round took " + (str(time.time() - one_round_time_before)) + " seconds, "\
                   + str(default_alias_icmp_probe_number - (i+1)) + " rounds remaining")
@@ -257,11 +257,31 @@ def filter_candidates(velocities):
     return candidates
 
 def is_overlapping(before1, after1, before2, after2):
-    if (before1 < before2 and before2 < after1) :
+    if before1 <= before2 <= after1:
         return True
-    elif (before2 < before1 and before1 < after2):
+    elif before2 <= before1 <= after2:
         return True
     return False
+
+
+
+def mbt_sort(timed_ip_id1, timed_ip_id2):
+    # timed_ip_id1 is a tuple (before, after, receveid_ip_id, sent_ip_id)
+    if is_overlapping(timed_ip_id1[0], timed_ip_id1[1], timed_ip_id2[0], timed_ip_id2[1]):
+        if timed_ip_id1[2] < timed_ip_id2[2]:
+            return -1
+        elif timed_ip_id1[2] == timed_ip_id2[2]:
+            return 0
+        else:
+            return 1
+    else:
+        if timed_ip_id1[1] < timed_ip_id2[1]:
+            return -1
+        elif timed_ip_id1[1] == timed_ip_id2[1]:
+            return 0
+        else:
+            return 1
+
 
 def monotonic_bound_test(time_serie1, original_time_serie2):
     # Merge the two time series into 1
@@ -276,87 +296,12 @@ def monotonic_bound_test(time_serie1, original_time_serie2):
         copy_l = list(l)
         copy_l.append(2)
         time_serie2.append(copy_l)
-    # # Insert the timeserie2 to the right places
-    # for i in range(0, len(time_serie2)):
-    #     before2 = time_serie2[i][0]
-    #     after2 = time_serie2[i][1]
-    #     # Find the right place
-    #     overlapping_indexes = []
-    #     right_index = -1
-    #     found_overlapping = False
-    #     for j in range(0, len(time_serie)):
-    #         before1 = time_serie[j][0]
-    #         after1 = time_serie[j][1]
-    #         if with_overlapping:
-    #             has_overlapping = is_overlapping(before1, after1, before2, after2)
-    #             if has_overlapping:
-    #                 found_overlapping = True
-    #                 overlapping_indexes.append(j)
-    #                 continue
-    #             if found_overlapping:
-    #                 break
-    #         if j == 0:
-    #             if after2 < before1:
-    #                 right_index = 0
-    #         if j == len(time_serie) - 1:
-    #             if after1 < before2:
-    #                 right_index = -2
-    #             else:
-    #                 right_index = j
-    #             break
-    #         # Between j and j+1
-    #         if after1 <= before2 and after2 <= time_serie[j+1][0]:
-    #             right_index = j + 1
-    #             break
-    #     if with_overlapping:
-    #         if len(overlapping_indexes) > 0:
-    #             # Handle the case where there is an after overlaping probe that has been already put
-    #             last_overlapping_index = overlapping_indexes[len(overlapping_indexes) - 1]
-    #             before2 = time_serie2[i][0]
-    #             has_found_after_overlaping = False
-    #             # Find the last element from time_serie2
-    #             serie2_inserted_elements = list(filter(lambda x : x[3] == 2, time_serie[last_overlapping_index:]))
-    #             if len(serie2_inserted_elements) > 0:
-    #                 last_serie2_element = serie2_inserted_elements[len(serie2_inserted_elements)-1]
-    #             else:
-    #                 last_serie2_element = None
-    #             if last_serie2_element is not None:
-    #                 for j in range(last_overlapping_index, len(time_serie)):
-    #                     if last_serie2_element == time_serie[j]:
-    #                         has_found_after_overlaping = True
-    #                         if j == len(time_serie) - 1:
-    #                             time_serie.append(time_serie2[i])
-    #                         time_serie.insert(j+1, time_serie2[i])
-    #                         break
-    #                 if has_found_after_overlaping:
-    #                     continue
-    #             for k in range(0, len(overlapping_indexes)):
-    #                 if k == 0:
-    #                     if time_serie2[i][2] < time_serie[overlapping_indexes[k]][2]:
-    #                         time_serie.insert(overlapping_indexes[k], time_serie2[i])
-    #                 if k == len(overlapping_indexes) - 1:
-    #                     if time_serie2[i][2] > time_serie[overlapping_indexes[k]][2]:
-    #                         if overlapping_indexes[k] == len(time_serie) - 1:
-    #                             time_serie.append(time_serie2[i])
-    #                         else:
-    #                             time_serie.insert(overlapping_indexes[k] + 1, time_serie2[i])
-    #                 elif time_serie2[i][2] > time_serie[overlapping_indexes[k]][2] \
-    #                         and time_serie2[i][2] < time_serie[overlapping_indexes[k+1]][2]:
-    #                     time_serie.insert(overlapping_indexes[k]+1, time_serie2[i])
-    #             continue
-    #     if right_index == -2:
-    #         time_serie.append(time_serie2[i])
-    #     else:
-    #         time_serie.insert(right_index, time_serie2[i])
-
-
-
 
     time_serie.extend(time_serie2)
     # Sort by ip_id
-    time_serie.sort(key=lambda x: x[2])
-    # Sort by before time (stable, guaranteed by python)
-    time_serie.sort(key=lambda x : x[0])
+    time_serie.sort(mbt_sort)
+    # # Sort by before time (stable, guaranteed by python)
+    # time_serie.sort(key=lambda x : x[0])
 
     ip_id_serie = [x[2] for x in time_serie]
     sorted_ip_id_serie = sorted(ip_id_serie)
@@ -384,6 +329,7 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
     alias_candidates = filter_candidates(candidates)
 
     for v, time_serie in time_serie_by_v.iteritems():
+        # VERY IMPORTANT. THIS ENSURES THE CORRECTNESS OF MBT
         compute_negative_delta(time_serie)
 
     next_stage_candidates = {}
@@ -500,6 +446,7 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
 
             candidates_to_remove_treshold = []
             for v, time_serie in time_series_by_candidate.iteritems():
+                # VERY IMPORTANT
                 compute_negative_delta(time_serie)
                 ip_ids = [x[2] for x in time_serie]
                 ip_ids_probes = [x[3] for x in time_serie]

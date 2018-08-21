@@ -22,7 +22,7 @@ def execute_phase1(g, destination, nks):
         while total_replies_ttl < nks[2]:
             next_flow_id = max(find_max_flow_id(g, ttl), 0)
             phase1_probes = generate_probes(nks[2] - total_replies_ttl, destination, ttl, next_flow_id)
-            replies, unanswered, before, after = send_probes(phase1_probes, default_timeout, True)
+            replies, unanswered, before = send_probes(phase1_probes, default_timeout, True)
             total_replies_ttl += len(replies)
             if len(replies) == 0:
                 if total_replies_ttl == 0 :
@@ -36,7 +36,7 @@ def execute_phase1(g, destination, nks):
             for probe, reply in replies:
                 src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
                 ttl_probe, ip_id_probe = extract_probe_infos(probe)
-                alias_result = [before, after, ip_id_reply, ip_id_probe]                # Update the graph
+                alias_result = [before, reply.time, ip_id_reply, ip_id_probe]                # Update the graph
                 g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
                 # graph_topology_draw(g)
                 print src_ip
@@ -79,16 +79,16 @@ def generate_probes(nprobes, destination, ttl, starting_flow_id):
 def send_probes(probes, timeout, verbose = False):
     before = time.time()
     replies, answered = sr(probes, timeout=timeout, verbose=verbose, iface=default_interface)
-    after =  time.time()
+    # after =  time.time()
     increment_probe_sent(len(probes))
     increment_replies(len(replies.res))
-    return replies, answered, before, after
+    return replies, answered, before
 
-def update_graph_from_replies(g, replies, before, after):
+def update_graph_from_replies(g, replies, before):
     for probe, reply in replies:
         src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
         ttl_probe, ip_id_probe = extract_probe_infos(probe)
-        alias_result = [before, after, ip_id_reply, ip_id_probe]
+        alias_result = [before, reply.time, ip_id_reply, ip_id_probe]
         # Update the graph
         g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
 
@@ -147,9 +147,9 @@ def forward_flows(g, destination, ttl, flows):
             batch_forward_probes = forward_probes[i:]
         else:
             batch_forward_probes = forward_probes[i:i+max_batch_link_probe_size]
-        replies, unanswered, before, after = send_probes(batch_forward_probes, default_timeout)
+        replies, unanswered, before = send_probes(batch_forward_probes, default_timeout)
 
-        update_graph_from_replies(g, replies, before, after)
+        update_graph_from_replies(g, replies, before)
 
         if len(replies) == 0 and len(find_vertex_by_ttl(g, ttl+1)) == 0:
             update_unanswered(unanswered, ttl + 1, True, g)
@@ -219,9 +219,9 @@ def stochastic_probing(g, destination, ttl, min_flows, missing_flows):
 
     stochastic_probes = [build_probe(destination, ttl, i) for i in range(max_flow_ttl, max_flow_ttl + min_flows)]
     logging.debug("Stochastic probing. Has to at least send " + str(min_flows) + " to reach statistical guarantees.")
-    replies, unanswered, before, after = send_probes(stochastic_probes, stochastic_timeout)
+    replies, unanswered, before = send_probes(stochastic_probes, stochastic_timeout)
 
-    update_graph_from_replies(g, replies, before, after)
+    update_graph_from_replies(g, replies, before)
 
     update_unanswered(unanswered, ttl, False)
 
@@ -231,12 +231,12 @@ def probe_until_nk(g, destination, ttl, nprobe_sent, hypothesis, nks):
         nprobes = nks[hypothesis] - nprobe_sent
         # Generate the nprobes, don't use the black flows found at ttl - 1
         probes = generate_probes(nprobes, destination, ttl, next_flow_id)
-        replies, unanswered, before, after = send_probes(probes, default_timeout)
+        replies, unanswered, before = send_probes(probes, default_timeout)
         update_unanswered(unanswered, ttl, False)
         for probe, reply in replies:
             src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
             ttl_probe, ip_id_probe = extract_probe_infos(probe)
-            alias_result = [before, after, ip_id_reply, ip_id_probe]
+            alias_result = [before, reply.time, ip_id_reply, ip_id_probe]
             if is_new_ip(g, src_ip):
                 hypothesis = hypothesis + 1
             # Update the graph

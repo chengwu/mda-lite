@@ -113,7 +113,7 @@ def remap(previous_g, destination):
         replies, unanswered, before, after = send_probes(probes, timeout = 2 * default_timeout)
         if len(replies) == 0:
             update_unanswered(unanswered, ttl, True, g)
-        update_graph_from_replies(g, replies, before, after)
+        update_graph_from_replies(g, replies, before)
     return g, remapping_probes
 
 def diff(old_g, g, remapping_probes):
@@ -264,7 +264,11 @@ def main(argv):
         diffs = diff(previous_g, g, remapping_probes)
     if diffs is None or len(diffs) > 0:
 
-        if not only_alias:
+        if only_alias:
+            # HACK FOR DEBUG ###
+            g = load_graph("test.xml")
+            llb = extract_load_balancers(g)
+        else:
             init_black_flows()
             g = init_graph(destination)
             if algorithm == "mda-lite":
@@ -279,31 +283,27 @@ def main(argv):
             clean_stars(g)
             reconnect_stars(g)
             remove_self_loop_destination(g, destination)
-            if with_alias_resolution:
-                logging.info("Starting phase 4 : proceeding to alias resolution")
-                # HACK FOR DEBUG ###
-                if only_alias:
-                    #g = load_graph("router_level_test.xml")
-                    llb = extract_load_balancers(g)
-                #############
-                #copy_g = Graph(g)
-                # interfaces = copy_g.new_vertex_property("vector<string>", [])
-                # copy_g.vertex_properties["interfaces"] = interfaces
-                llb = extract_load_balancers(g)
-                before_alias = time.time()
-                aliases = resolve_aliases(destination, llb, g)
-                print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
-                #r_g = router_graph(aliases, r_g)
-                save_routers(aliases, g)
-                remove_self_loop_destination(g, destination)
+        if with_alias_resolution:
+            logging.info("Starting phase 4 : proceeding to alias resolution")
+            #############
+            #copy_g = Graph(g)
+            # interfaces = copy_g.new_vertex_property("vector<string>", [])
+            # copy_g.vertex_properties["interfaces"] = interfaces
+            llb = extract_load_balancers(g)
+            before_alias = time.time()
+            aliases = resolve_aliases(destination, llb, g)
+            print "Duration of alias resolution : " + str(time.time() - before_alias) + " seconds"
+            #r_g = router_graph(aliases, r_g)
+            save_routers(aliases, g)
+            remove_self_loop_destination(g, destination)
 
-                router_probes_sent = get_total_probe_sent() - ip_probes_sent
-                router_useful_probes = get_total_replies() - ip_useful_probes
-            if with_ip2as:
-                logging.info("Starting phase 5 : proceeding to ip2as resolution")
-                #g = load_graph("router_level_test.xml")
-                ripe_ip2as(g)
-                # bgp_stream_ip_to_as(g, origin)
+            router_probes_sent = get_total_probe_sent() - ip_probes_sent
+            router_useful_probes = get_total_replies() - ip_useful_probes
+        if with_ip2as:
+            logging.info("Starting phase 5 : proceeding to ip2as resolution")
+            #g = load_graph("router_level_test.xml")
+            ripe_ip2as(g)
+            # bgp_stream_ip_to_as(g, origin)
 
     end_time = time.time() - origin
 

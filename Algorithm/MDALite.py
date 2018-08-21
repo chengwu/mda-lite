@@ -32,9 +32,9 @@ def reconnect_impl(g, destination, ttl, ttl2):
                 break
         if flow_id is not None:
             check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, unanswered, before, after = send_probes(check_neighbors_probes, default_timeout)
+    replies, unanswered, before = send_probes(check_neighbors_probes, default_timeout)
     update_unanswered(unanswered, ttl, False)
-    update_graph_from_replies(g, replies, before, after)
+    update_graph_from_replies(g, replies, before)
 
 # These functions reconnect a flow_number number of flows (serves for checking cross edges)
 def reconnect_flows_ttl_predecessor(g, destination, ttl, flow_number):
@@ -55,9 +55,9 @@ def reconnect_flows_ttl_impl(g, destination, ttl, ttl2, flow_number):
                 if predecessors is None:
                     if flow_id not in black_flows[ttl2]:
                         check_neighbors_probes.append(build_probe(destination, ttl2, flow_id))
-    replies, unanswered, before, after = send_probes(check_neighbors_probes, default_timeout)
+    replies, unanswered, before = send_probes(check_neighbors_probes, default_timeout)
     update_unanswered(unanswered, ttl, False)
-    update_graph_from_replies(g, replies, before, after)
+    update_graph_from_replies(g, replies, before)
 
 def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, nks):
     while nprobe_sent < max_probe_needed:
@@ -65,9 +65,9 @@ def probe_asymmetry_ttl(g, destination, lb, ttl, nprobe_sent, max_probe_needed, 
         nprobes = max_probe_needed - nprobe_sent
         # Generate the nprobes
         probes = generate_probes(nprobes, destination, ttl, next_flow_id)
-        replies, unanswered, before, after = send_probes(probes, default_timeout)
+        replies, unanswered, before = send_probes(probes, default_timeout)
         update_unanswered(unanswered, ttl, False)
-        update_graph_from_replies(g, replies, before, after)
+        update_graph_from_replies(g, replies, before)
         nprobe_sent = nprobe_sent + nprobes
         reconnect_predecessors(g, destination, ttl)
         max_probe_needed = max_probes_needed_ttl(g, lb, ttl, nks)
@@ -172,59 +172,6 @@ def execute_phase3(g, destination, llb, vertex_confidence,total_budget, limit_li
                     ttl_finished.append(ttl)
                     has_to_probe_more = False
                 if has_to_probe_more:
-                    # Generate probes new flow_ids
-                    # if links_probes_sent < limit_link_probes:
-                    #     # Privilegiate flows that are already at ttl - 1
-                    #     check_links_probes = []
-                    #     overflows = find_missing_flows(g, ttl-1, ttl)
-                    #     for flow in overflows:
-                    #         check_links_probes.append(build_probe(destination, ttl, flow))
-                    #     next_flow_id_overflows = 0
-                    #     if len(overflows) != 0:
-                    #         next_flow_id_overflows = max(overflows)
-                    #     next_flow_id = max(find_max_flow_id(g, ttl), next_flow_id_overflows)
-                    #     # Adapt the batch depending on how much probe we can send without reaching ICMP Rate limit
-                    #     nprobes = adaptive_icmp_rate[ttl]+1-len(overflows)
-                    #     supplement_probes = generate_probes(nprobes, destination, ttl, next_flow_id)
-                    #     check_links_probes.extend(supplement_probes)
-                    #     replies, unanswered, before, after = send_probes(check_links_probes, default_timeout)
-                    #     update_unanswered(unanswered, ttl, False)
-                    #     if len(replies) > 0:
-                    #         adapt_sending_rate(adaptive_icmp_rate, last_loss_fraction, adaptive_timeout, ttl, replies, unanswered)
-                    #     discovered = 0
-                    #     links_probes_sent += len(check_links_probes)
-                    #     if len(replies) > 0:
-                    #         responding = True
-                    #     else:
-                    #         logging.info("TTL " + str(ttl) + " finished. Not responding.")
-                    #     for probe, reply in replies:
-                    #         src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
-                    #         ttl_probe, ip_id_probe = extract_probe_infos(probe)
-                    #         alias_result = [before, after, ip_id_reply, ip_id_probe]
-                    #         if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
-                    #             discovered = discovered + 1
-                    #         # Update the graph
-                    #         g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
-                    #     # With the new flows generated, find the missing flows at ttl-1
-                    #     check_missing_flow_probes = []
-                    #     missing_flows = find_missing_flows(g, ttl, ttl-1)
-                    #     # missing_flows = flows_to_forward(g, ttl, nks)
-                    #     for flow in missing_flows:
-                    #         check_missing_flow_probes.append(build_probe(destination, ttl - 1, flow))
-                    #     replies, unanswered, before, after = send_probes(check_missing_flow_probes, default_timeout)
-                    #     update_unanswered(unanswered, ttl, False)
-                    #     if len(replies) > 0:
-                    #         responding = True
-                    #     for probe, reply in replies:
-                    #         src_ip, flow_id, ttl_reply, ip_id_reply, mpls_infos = extract_icmp_reply_infos(reply)
-                    #         ttl_probe, ip_id_probe = extract_probe_infos(probe)
-                    #         alias_result = [before, after, ip_id_reply, ip_id_probe]
-                    #         # Update the graph
-                    #         if has_discovered_edge(g, src_ip, ttl_probe, flow_id):
-                    #             discovered = discovered + 1
-                    #         g = update_graph(g, src_ip, ttl_probe, ttl_reply, flow_id, alias_result, mpls_infos)
-                    #     links_probes_sent += len(check_missing_flow_probes)
-                    #     #dump_flows(g)
 
                     # Switch to MDA
                     while mda_continue_probing_ttl(g, ttl - 1, nks) and get_total_probe_sent() < give_up_probes:
