@@ -319,11 +319,11 @@ def main(argv):
             router_probes_sent = get_total_probe_sent() - ip_probes_sent
             router_useful_probes = get_total_replies() - ip_useful_probes
             save_routers_round(-1, aliases_just_ip_traceroute, int_aliases_just_ip_traceroute[1], int_aliases_just_ip_traceroute[2], g)
-            dump_routers_round(-1, g)
+            # dump_routers_round(-1, g)
             for round, (int_aliases, probes_sent, replies_received) in int_aliases_per_round.iteritems():
                 aliases = int_dict_to_vertices_dict(int_aliases, g)
                 save_routers_round(round, aliases, probes_sent, replies_received, g)
-                dump_routers_round(round, g)
+                # dump_routers_round(round, g)
 
             save_routers(int_dict_to_vertices_dict(int_aliases_per_round[default_number_mbt - 1][0], g), g)
             remove_self_loop_destination(g, destination)
