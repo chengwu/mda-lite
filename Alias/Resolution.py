@@ -16,7 +16,7 @@ midar_discard_velocity_treshold = 100
 default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 30
 default_pre_estimation_serie = 2000
-default_number_mbt = 10
+default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
 
@@ -331,6 +331,7 @@ def apply_mbt_fingerprinting_ttl(g, time_serie_by_v):
 
     for v, time_serie in time_serie_by_v.iteritems():
         # VERY IMPORTANT. THIS ENSURES THE CORRECTNESS OF MBT
+        time_serie.sort(mbt_sort)
         compute_negative_delta(time_serie)
 
     next_stage_candidates = {}
@@ -455,6 +456,7 @@ def elimination_stage(g, elimination_stage_candidates, full_alias_candidates, tt
             candidates_to_remove_treshold = []
             for v, time_serie in time_series_by_candidate.iteritems():
                 # VERY IMPORTANT
+                time_serie.sort(mbt_sort)
                 compute_negative_delta(time_serie)
                 ip_ids = [x[2] for x in time_serie]
                 ip_ids_probes = [x[3] for x in time_serie]
