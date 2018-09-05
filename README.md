@@ -1,6 +1,7 @@
 # Multilevel MDA-Lite Paris Traceroute (MMLPT)
 
 Multilevel MDA-Lite Paris Traceroute is a portable (Linux, MacOS, Windows) traceroute-like tool capable of both giving IP and router level view.
+It supports IPv4 for IP level and router level, and IPv6 only for IP level. 
 
 ## Getting Started
 
@@ -145,6 +146,23 @@ for v in g.vertices():
     if ip_address[v] == "an_ip_of_your_choice_in_the_traceroute":
         print ip_ids[v]
 
+```
+
+## Deploying in a docker container.
+Dockerfile provides an example of a Docker script that allows you to deploy 
+MMLPT in a Dockercontainer (in the example with an ubuntu image).
+To build the container, launch the command:
+```
+docker build --build-arg "CACHE_DATE=$(date)" -t "name/of/your/docker/image" . 
+```
+Then push it to docker repository:
+```
+docker push name/of/your/docker/image
+```
+
+To run it:
+```
+docker run -d name/of/your/docker/image
 ```
 
 <!--- ## Contributing
