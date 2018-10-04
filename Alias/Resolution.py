@@ -16,7 +16,7 @@ midar_discard_velocity_treshold = 100
 default_alias_timeout = 1.5
 default_alias_icmp_probe_number = 30
 default_pre_estimation_serie = 2000
-default_number_mbt = 10
+default_number_mbt = 2
 default_elimination_alias_timeout = 1.5
 default_fingerprinting_timeout = 5
 
@@ -609,7 +609,7 @@ if __name__ == "__main__" :
     pass_mbt = monotonic_bound_test(time_serie1, time_serie2)
     assert(not pass_mbt)
 
-    g = load_graph("test.xml")
-    dump_routers_round(-1, g)
+
+
 
 
