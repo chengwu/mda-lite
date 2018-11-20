@@ -529,7 +529,7 @@ def dump_results(g, with_alias_resolution, with_ip_to_as, destination):
             dump_ripe_asns[v] = ""
             if ripe_asns[v] is not None:
                 for as_infos in ripe_asns[v]:
-                    dump_ripe_asns[v] = dump_ripe_asns[v] + " (" + str(as_infos["holder"]) + ", " +str(as_infos["asn"]) + ")"
+                    dump_ripe_asns[v] = dump_ripe_asns[v] + " (" + str(as_infos["holder"].encode("utf-8")) + ", " +str(as_infos["asn"]) + ")"
     # The format is the following : (ttl) : [ip->[successors], ...]
     for ttl in range(0, max_ttl):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)

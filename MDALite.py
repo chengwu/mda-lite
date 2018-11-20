@@ -41,9 +41,6 @@ def resolve_aliases(destination, llb, g):
     aliases = {}
     for i in range(0, default_number_mbt):
         aliases[i] = [{}, 0, 0]
-    # Get infos on fingerprinting
-    echo_replies, unanswered = send_fingerprinting_probes(g)
-    update_finger_printing(g, echo_replies)
 
     # Maintain thwo IP-ID time serie. One with no negative deltas and one with negative deltas.
     ip_ids = g.vertex_properties["ip_ids"]
@@ -181,6 +178,7 @@ def main(argv):
     save_flows_infos = False
 
     with_alias_resolution = False
+    with_fingerprinting = False
     with_ip2as = False
     only_alias = False
     log_level = "INFO"
@@ -197,14 +195,15 @@ def main(argv):
                 '-s --save-edge-flows Save in the serialized graph the which flows have discovered which interface (in case of remeasuring)\n' \
                 '-S --source <source> source ip to use in the packets\n' \
                 '-a --with-alias do alias resolution on load balancers found after MDA-lite\n'\
-                '-A --with-ip2as do ip2as resolution\n'\
+                '-A --with-ip2as do ip2as resolution\n' \
+                '-F --with-fingerprinting do fingerprinting\n' \
                 '-R --only-alias do only alias resolution (NOT WORKING ATM)\n'\
                 '-l --log-level set the logging level (Python standard values allowed)\n'\
                 '-f --meshing-flows set the number of flows to send back/forward to detect meshing (minimum is 2)\n'\
                 '-m --algorithm Choose the algorithm. Possible algorithms are (mda, mda-lite)\n'\
                 '-6 --ipv6 Use IPv6'
     try:
-        opts, args = getopt.getopt(argv, "ho:i:c:b:sS:aARl:f:m:6", ["help","ofile=",
+        opts, args = getopt.getopt(argv, "ho:i:c:b:sS:aAFRl:f:m:6", ["help","ofile=",
                                                                 "ifile=",
                                                                 "vertex-confidence=",
                                                                 "edge-budget=",
@@ -247,6 +246,8 @@ def main(argv):
             with_alias_resolution = True
         elif opt in ("-A", "--with-ip2as"):
             with_ip2as = True
+        elif opt in ("-F", "--with-fingerprinting"):
+            with_fingerprinting = True
         elif opt in ("-R", "--only-alias"):
             only_alias = True
         elif opt in ("-l", "--log-level"):
@@ -304,6 +305,10 @@ def main(argv):
             clean_stars(g)
             reconnect_stars(g)
             remove_self_loop_destination(g, destination)
+        if with_fingerprinting:
+            # Get infos on fingerprinting
+            echo_replies, unanswered = send_fingerprinting_probes(g)
+            update_finger_printing(g, echo_replies)
         if with_alias_resolution:
             logging.info("Starting phase 4 : proceeding to alias resolution")
             #############

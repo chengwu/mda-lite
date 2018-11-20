@@ -53,7 +53,7 @@ def graph_topology_draw(g, with_alias_resolution, with_ip2as_resolution, output_
 
     for ttl in range(0, 30):
         vertices_by_ttl = find_vertex_by_ttl(g, ttl)
-        x_coordinate = 20 * ttl
+        x_coordinate = 100 * ttl
         y_coordinate = 0
         y_step = 8
         for i in range(0, len(vertices_by_ttl)):

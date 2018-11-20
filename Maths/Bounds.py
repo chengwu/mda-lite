@@ -147,11 +147,30 @@ if __name__ == "__main__":
     #
     # print expectation_discovered(get_nks()[1], 4, 8)
     # print expectation_discovered(get_nks()[1], 6, 8)
-    max_hypothesis = 200
-    nks_95 = compute_nks(0.05, max_hypothesis)
-    nks_99 = compute_nks(0.01, max_hypothesis)
-    for i in range(0, max_hypothesis):
-        sys.stdout.write("(" + str(int(nks_95[i])) + ", " + str(int(nks_99[i])) + ") , ")
-        if i % 5 == 0:
-            sys.stdout.write('\n')
-    sys.stdout.flush()
+    # max_hypothesis = 200
+    # nks_95 = compute_nks(0.05, max_hypothesis)
+    # nks_99 = compute_nks(0.01, max_hypothesis)
+    # for i in range(0, max_hypothesis):
+    #     sys.stdout.write("(" + str(int(nks_95[i])) + ", " + str(int(nks_99[i])) + ") , ")
+    #     if i % 5 == 0:
+    #         sys.stdout.write('\n')
+    # sys.stdout.flush()
+    from graph_tool import load_graph
+    g = load_graph("resources/IMC2018/ple44.planet-lab.eu_121.185.254.1.xml")
+
+    failure_probas = \
+    {
+        92 : 0.001703,
+        12 : 0.001678,
+        7  : 0.001701
+    }
+
+    success_proba = 1
+    for v in g.vertices():
+        if v.out_degree() > 1:
+            success_proba *= (1 - failure_probas[v.out_degree()])
+
+    failure_proba = 1 - success_proba
+    print "Failure probability: " + str(failure_proba)
+
+    print nks[50][1] + 49
