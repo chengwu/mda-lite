@@ -48,7 +48,7 @@ def execute_phase1(g, destination, nks):
     return False
 
 def init_black_flows():
-    for i in range(0, max_ttl):
+    for i in range(0, max_ttl + 1):
         black_flows[i] = []
 
 def increment_replies(n):
