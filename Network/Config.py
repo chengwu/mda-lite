@@ -27,9 +27,11 @@ for interface in interfaces:
                 default_ip_address_6 = str(ni.ifaddresses(default_interface)[AF_INET6][0]['addr'])
                 break
 
-print "default IP interface: " + default_interface
-print 'default IPv4 address: ' + default_ip_address
-print "default IPv6 address: " + default_ip_address_6
+print "default IP interface: " + str(default_interface)
+
+
+print 'default IPv4 address: ' + str(default_ip_address)
+print "default IPv6 address: " + str(default_ip_address_6)
 
 def set_interface(interface):
     global default_interface
