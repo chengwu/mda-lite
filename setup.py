@@ -7,8 +7,14 @@ setup(name='Multilevel MDA-Lite Paris Traceroute',
       author='Kevin Vermeulen,',
       author_email='kevinmylinh.vermeulen@gmail.com',
       license='MIT',
+      entry_points={
+          "console_scripts": [
+              'mda-lite = Network.MdaLite:main',
+              'ripe-mda = Network.RIPE_MDA:main',
+            ], 
+      },
       packages=find_packages(),
       install_requires=[
-          'scapy', 'netifaces'
+          'scapy', 'netifaces', 'graph-tool'
       ],
       zip_safe=False)
